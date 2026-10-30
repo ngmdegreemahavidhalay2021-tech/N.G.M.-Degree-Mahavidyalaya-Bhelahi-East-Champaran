@@ -1,0 +1,198 @@
+{
+  "entities": {
+    "Admin": {
+      "title": "Admin",
+      "description": "Administrator account profile",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "username": { "type": "string" },
+        "email": { "type": "string" },
+        "role": { "type": "string", "enum": ["admin"] },
+        "fullName": { "type": "string" },
+        "createdAt": { "type": "string" },
+        "recoveryEmail": { "type": "string" }
+      },
+      "required": ["uid", "username", "email", "role"]
+    },
+    "Department": {
+      "title": "Department",
+      "description": "College academic department",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "code": { "type": "string" },
+        "name": { "type": "string" },
+        "description": { "type": "string" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["id", "code", "name"]
+    },
+    "Subject": {
+      "title": "Subject",
+      "description": "Curriculum course subject assigned to department",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "departmentId": { "type": "string" },
+        "code": { "type": "string" },
+        "name": { "type": "string" },
+        "course": { "type": "string" },
+        "semester": { "type": "string" },
+        "section": { "type": "string" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["id", "departmentId", "code", "name"]
+    },
+    "PracticalForm": {
+      "title": "PracticalForm",
+      "description": "Independent practical examination evaluation form like Google Forms",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "title": { "type": "string" },
+        "departmentId": { "type": "string" },
+        "course": { "type": "string" },
+        "semester": { "type": "string" },
+        "section": { "type": "string" },
+        "subjectId": { "type": "string" },
+        "subjectCode": { "type": "string" },
+        "subjectName": { "type": "string" },
+        "examName": { "type": "string" },
+        "examYear": { "type": "string" },
+        "maxMarks": { "type": "number" },
+        "instructions": { "type": "string" },
+        "examDate": { "type": "string" },
+        "allowDecimals": { "type": "boolean" },
+        "token": { "type": "string" },
+        "status": { "type": "string", "enum": ["draft", "published", "closed"] },
+        "isActive": { "type": "boolean" },
+        "isStudentListLocked": { "type": "boolean" },
+        "createdAt": { "type": "string" },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["id", "title", "departmentId", "subjectId", "maxMarks", "token", "status"]
+    },
+    "Student": {
+      "title": "Student",
+      "description": "Master student candidate identity with permanent studentId",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "rollNumber": { "type": "string" },
+        "studentName": { "type": "string" },
+        "departmentId": { "type": "string" },
+        "course": { "type": "string" },
+        "semester": { "type": "string" },
+        "section": { "type": "string" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["id", "rollNumber", "studentName"]
+    },
+    "FormEnrollment": {
+      "title": "FormEnrollment",
+      "description": "Student enrolled in a practical form with verified snapshot",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "practicalFormId": { "type": "string" },
+        "studentId": { "type": "string" },
+        "rollNumber": { "type": "string" },
+        "studentName": { "type": "string" },
+        "departmentId": { "type": "string" },
+        "course": { "type": "string" },
+        "semester": { "type": "string" },
+        "section": { "type": "string" },
+        "status": { "type": "string", "enum": ["enrolled", "verified", "removed"] },
+        "enrolledAt": { "type": "string" }
+      },
+      "required": ["id", "practicalFormId", "studentId", "rollNumber", "studentName"]
+    },
+    "MarksRecord": {
+      "title": "MarksRecord",
+      "description": "Evaluation marks record for a student in a specific practical form",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "practicalFormId": { "type": "string" },
+        "studentId": { "type": "string" },
+        "rollNumber": { "type": "string" },
+        "studentName": { "type": "string" },
+        "marksObtained": { "type": "number" },
+        "isPresent": { "type": "boolean" },
+        "remarks": { "type": "string" },
+        "updatedAt": { "type": "string" },
+        "updatedBy": { "type": "string" }
+      },
+      "required": ["id", "practicalFormId", "studentId", "rollNumber"]
+    },
+    "ActivityLog": {
+      "title": "ActivityLog",
+      "description": "Audit trail log of all administrative and marks operations",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "action": { "type": "string" },
+        "entityType": { "type": "string" },
+        "entityId": { "type": "string" },
+        "details": { "type": "string" },
+        "performedBy": { "type": "string" },
+        "timestamp": { "type": "string" }
+      },
+      "required": ["id", "action", "details", "timestamp"]
+    },
+    "SystemSettings": {
+      "title": "SystemSettings",
+      "description": "College settings and bootstrap state",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "isBootstrapped": { "type": "boolean" },
+        "collegeName": { "type": "string" },
+        "adminUsername": { "type": "string" },
+        "adminEmail": { "type": "string" },
+        "recoveryEmail": { "type": "string" },
+        "bootstrappedAt": { "type": "string" }
+      },
+      "required": ["isBootstrapped"]
+    }
+  },
+  "firestore": {
+    "/admins/{adminId}": {
+      "schema": { "$ref": "#/entities/Admin" },
+      "description": "Admin users"
+    },
+    "/departments/{departmentId}": {
+      "schema": { "$ref": "#/entities/Department" },
+      "description": "Academic departments"
+    },
+    "/subjects/{subjectId}": {
+      "schema": { "$ref": "#/entities/Subject" },
+      "description": "Subjects directory"
+    },
+    "/practicalForms/{formId}": {
+      "schema": { "$ref": "#/entities/PracticalForm" },
+      "description": "Practical examination forms"
+    },
+    "/students/{studentId}": {
+      "schema": { "$ref": "#/entities/Student" },
+      "description": "Master student candidate directory"
+    },
+    "/formEnrollments/{enrollmentId}": {
+      "schema": { "$ref": "#/entities/FormEnrollment" },
+      "description": "Form-wise verified student enrollment snapshots"
+    },
+    "/marks/{markId}": {
+      "schema": { "$ref": "#/entities/MarksRecord" },
+      "description": "Examination marks evaluations"
+    },
+    "/activityLogs/{logId}": {
+      "schema": { "$ref": "#/entities/ActivityLog" },
+      "description": "Audit activity logs"
+    },
+    "/systemSettings/{settingId}": {
+      "schema": { "$ref": "#/entities/SystemSettings" },
+      "description": "College and bootstrap configurations"
+    }
+  }
+}

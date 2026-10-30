@@ -1,0 +1,100 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Global Safety Net
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function isAdmin() {
+      return isSignedIn() && (
+        exists(/databases/$(database)/documents/admins/$(request.auth.uid)) ||
+        request.auth.token.email == 'ngmdegreemahavidhalay2021@gmail.com'
+      );
+    }
+
+    // System Settings & Bootstrap
+    match /systemSettings/{settingId} {
+      allow get, list: if true;
+      allow write: if true;
+    }
+
+    match /system/bootstrap {
+      allow get, list: if true;
+      allow write: if true;
+    }
+
+    // Admins
+    match /admins/{adminId} {
+      allow get, list: if true;
+      allow write: if true;
+    }
+
+    // Departments
+    match /departments/{departmentId} {
+      allow get, list: if true;
+      allow write: if true;
+    }
+
+    // Subjects
+    match /subjects/{subjectId} {
+      allow get, list: if true;
+      allow write: if true;
+    }
+
+    // Practical Examination Forms
+    match /practicalForms/{formId} {
+      allow get, list: if true;
+      allow write: if true;
+    }
+
+    // Student Candidate Master Directory
+    match /students/{studentId} {
+      allow get, list: if true;
+      allow write: if true;
+    }
+
+    // Form Enrollments
+    match /formEnrollments/{enrollmentId} {
+      allow get, list: if true;
+      allow write: if true;
+    }
+
+    // Marks Records
+    match /marks/{markId} {
+      allow get, list: if true;
+      allow write: if true;
+    }
+
+    // Activity Logs
+    match /activityLogs/{logId} {
+      allow get, list: if true;
+      allow create: if true;
+      allow update, delete: if false;
+    }
+
+    // Legacy Practical Exams
+    match /practical_exams/{examId} {
+      allow get, list, write: if true;
+      match /students/{studentId} {
+        allow get, list, write: if true;
+      }
+    }
+  }
+}

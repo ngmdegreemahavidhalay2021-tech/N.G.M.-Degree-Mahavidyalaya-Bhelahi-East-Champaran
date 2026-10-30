@@ -1,0 +1,6 @@
+{
+  "name": "Practical Examination Marks Management System",
+  "description": "Comprehensive and secure marks entry, rubric evaluation, Excel grade sheet export, and practical examination management system with hardened administrator bootstrap and role-based access.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
