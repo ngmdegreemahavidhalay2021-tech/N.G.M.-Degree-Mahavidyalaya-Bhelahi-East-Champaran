@@ -35,6 +35,7 @@ import {
   removeStudentFromForm,
   updatePracticalForm,
   getStudents,
+  calculateResultStatus,
 } from '../services/collegeService';
 import { exportSingleFormExcel } from '../lib/collegeExport';
 
@@ -195,6 +196,8 @@ export const MarksModule: React.FC<MarksModuleProps> = ({
 
     try {
       setSaving(true);
+      const minPass = currentForm.minPassingMarks ?? Math.round(currentForm.maxMarks * 0.33);
+
       const recordsToSave = enrollments.map((enr) => {
         const input = inputMap[enr.studentId] || { marks: '', isPresent: true, remarks: '' };
         const numMarks = input.marks !== '' ? Number(input.marks) : null;
@@ -206,6 +209,7 @@ export const MarksModule: React.FC<MarksModuleProps> = ({
           marksObtained: input.isPresent ? numMarks : null,
           isPresent: input.isPresent,
           remarks: input.remarks,
+          minPassingMarks: minPass,
         };
       });
 
@@ -259,6 +263,9 @@ export const MarksModule: React.FC<MarksModuleProps> = ({
 
     try {
       setSaving(true);
+      const minPass = currentForm.minPassingMarks ?? Math.round(currentForm.maxMarks * 0.33);
+      const resStatus = calculateResultStatus(indivPresent ? numMarks : null, indivPresent, minPass);
+
       await saveSingleMark({
         practicalFormId: currentForm.id,
         studentId: selectedIndivStudent.studentId,
@@ -267,6 +274,7 @@ export const MarksModule: React.FC<MarksModuleProps> = ({
         marksObtained: indivPresent ? numMarks : null,
         isPresent: indivPresent,
         remarks: indivRemarks,
+        resultStatus: resStatus,
         updatedBy: 'Administrator (Individual Mode)',
       });
 
@@ -551,22 +559,23 @@ export const MarksModule: React.FC<MarksModuleProps> = ({
           <div className="bg-slate-900 border border-slate-800 rounded-2xl shadow-xl overflow-hidden">
             <div className="overflow-x-auto">
               <table className="w-full text-left text-xs">
-                <thead className="bg-slate-950 border-b border-slate-800 text-slate-400 font-semibold uppercase tracking-wider">
+                <thead className="bg-slate-950 border-b border-slate-800 text-slate-400 font-semibold uppercase tracking-wider text-[10px]">
                   <tr>
-                    <th className="py-3 px-3 w-12 text-center">#</th>
-                    <th className="py-3 px-3 w-32">Roll Number</th>
+                    <th className="py-3 px-3 w-10 text-center">#</th>
+                    <th className="py-3 px-3 w-28">Roll Number</th>
                     <th className="py-3 px-3">Student Name</th>
-                    <th className="py-3 px-3 w-28 text-center">Attendance</th>
-                    <th className="py-3 px-3 w-36 text-center">
-                      Marks (Max: {currentForm?.maxMarks || 50})
-                    </th>
+                    <th className="py-3 px-3 w-24 text-center">Attendance</th>
+                    <th className="py-3 px-2 w-20 text-center">Max Marks</th>
+                    <th className="py-3 px-2 w-20 text-center">Min Pass</th>
+                    <th className="py-3 px-3 w-32 text-center">Obtained Marks</th>
+                    <th className="py-3 px-3 w-24 text-center">Result Status</th>
                     <th className="py-3 px-3">Remarks</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-slate-800/60">
+                <tbody className="divide-y divide-slate-800/60 font-sans">
                   {paginatedRows.length === 0 ? (
                     <tr>
-                      <td colSpan={6} className="py-12 text-center text-slate-400">
+                      <td colSpan={9} className="py-12 text-center text-slate-400">
                         <Users className="w-8 h-8 mx-auto text-slate-600 mb-2" />
                         <p className="text-sm font-medium">No candidates in this form</p>
                         <p className="text-xs text-slate-500">
@@ -578,6 +587,9 @@ export const MarksModule: React.FC<MarksModuleProps> = ({
                     paginatedRows.map((enr, idx) => {
                       const input = inputMap[enr.studentId] || { marks: '', isPresent: true, remarks: '' };
                       const isPresent = input.isPresent;
+                      const minPass = currentForm?.minPassingMarks ?? Math.round((currentForm?.maxMarks || 50) * 0.33);
+                      const numMarks = input.marks !== '' ? Number(input.marks) : null;
+                      const resStatus = calculateResultStatus(numMarks, isPresent, minPass);
 
                       return (
                         <tr
@@ -599,7 +611,7 @@ export const MarksModule: React.FC<MarksModuleProps> = ({
                             <button
                               type="button"
                               onClick={() => handleBulkAttendanceToggle(enr.studentId)}
-                              className={`px-2.5 py-1 rounded text-[11px] font-bold uppercase transition-all ${
+                              className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase transition-all ${
                                 isPresent
                                   ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
                                   : 'bg-rose-500/20 text-rose-300 border border-rose-500/30'
@@ -607,6 +619,12 @@ export const MarksModule: React.FC<MarksModuleProps> = ({
                             >
                               {isPresent ? 'PRESENT' : 'ABSENT'}
                             </button>
+                          </td>
+                          <td className="py-2.5 px-2 text-center font-mono font-bold text-slate-300">
+                            {currentForm?.maxMarks}
+                          </td>
+                          <td className="py-2.5 px-2 text-center font-mono text-amber-400 font-semibold">
+                            {minPass}
                           </td>
                           <td className="py-2.5 px-3 text-center">
                             {isPresent ? (
@@ -617,12 +635,31 @@ export const MarksModule: React.FC<MarksModuleProps> = ({
                                 max={currentForm?.maxMarks}
                                 value={input.marks}
                                 onChange={(e) => handleBulkMarkChange(enr.studentId, e.target.value)}
-                                placeholder="Empty Box"
-                                className="w-28 py-1 px-2 text-center font-mono text-xs bg-slate-950 border border-slate-700 rounded-lg text-slate-100 focus:outline-none focus:border-blue-500"
+                                placeholder="Empty"
+                                className="w-24 py-1 px-2 text-center font-mono text-xs bg-slate-950 border border-slate-700 rounded-lg text-slate-100 focus:outline-none focus:border-blue-500"
                               />
                             ) : (
                               <span className="font-mono text-rose-400 font-semibold text-xs">
                                 ABSENT
+                              </span>
+                            )}
+                          </td>
+                          <td className="py-2.5 px-3 text-center">
+                            {resStatus === 'PASS' ? (
+                              <span className="inline-block px-2 py-0.5 rounded font-mono text-[10px] font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                                PASS
+                              </span>
+                            ) : resStatus === 'FAIL' ? (
+                              <span className="inline-block px-2 py-0.5 rounded font-mono text-[10px] font-bold bg-rose-500/20 text-rose-300 border border-rose-500/30">
+                                FAIL
+                              </span>
+                            ) : resStatus === 'ABSENT' ? (
+                              <span className="inline-block px-2 py-0.5 rounded font-mono text-[10px] font-bold bg-rose-950/40 text-rose-400 border border-rose-800">
+                                ABSENT
+                              </span>
+                            ) : (
+                              <span className="inline-block px-2 py-0.5 rounded font-mono text-[10px] font-bold bg-amber-500/10 text-amber-300 border border-amber-500/20">
+                                PENDING
                               </span>
                             )}
                           </td>
@@ -731,15 +768,26 @@ export const MarksModule: React.FC<MarksModuleProps> = ({
             {selectedIndivStudent ? (
               <div className="space-y-5">
                 <div className="pb-4 border-b border-slate-800">
-                  <span className="text-xs font-mono font-bold px-2 py-0.5 rounded bg-blue-500/10 text-blue-400 border border-blue-500/20">
-                    Roll No: {selectedIndivStudent.rollNumber}
-                  </span>
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-mono font-bold px-2 py-0.5 rounded bg-blue-500/10 text-blue-400 border border-blue-500/20">
+                      Roll No: {selectedIndivStudent.rollNumber}
+                    </span>
+                    {selectedIndivStudent.fatherName && (
+                      <span className="text-xs text-slate-400">
+                        Father: <strong className="text-slate-300">{selectedIndivStudent.fatherName}</strong>
+                      </span>
+                    )}
+                  </div>
                   <h3 className="text-xl font-bold text-slate-100 mt-2">
                     {selectedIndivStudent.studentName}
                   </h3>
-                  <p className="text-xs text-slate-400 mt-0.5">
-                    {currentForm?.subjectCode} — {currentForm?.subjectName} | Maximum Marks: <strong className="text-amber-400">{currentForm?.maxMarks}</strong>
-                  </p>
+                  <div className="flex flex-wrap items-center gap-3 mt-1.5 text-xs text-slate-400">
+                    <span>{currentForm?.subjectCode} — {currentForm?.subjectName}</span>
+                    <span>•</span>
+                    <span>Max Marks: <strong className="text-amber-400 font-mono">{currentForm?.maxMarks}</strong></span>
+                    <span>•</span>
+                    <span>Min Pass Marks: <strong className="text-amber-400 font-mono">{currentForm?.minPassingMarks ?? Math.round((currentForm?.maxMarks || 50) * 0.33)}</strong></span>
+                  </div>
                 </div>
 
                 <div className="space-y-4">
@@ -774,24 +822,63 @@ export const MarksModule: React.FC<MarksModuleProps> = ({
                   </div>
 
                   {indivPresent ? (
-                    <div>
-                      <label className="block text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">
-                        Marks Obtained (Max {currentForm?.maxMarks})
-                      </label>
-                      <input
-                        type="number"
-                        step={currentForm?.allowDecimals ? '0.1' : '1'}
-                        min={0}
-                        max={currentForm?.maxMarks}
-                        value={indivMarks}
-                        onChange={(e) => setIndivMarks(e.target.value)}
-                        placeholder="Enter Marks"
-                        className="w-48 py-2 px-3 text-lg font-mono font-bold bg-slate-950 border border-slate-700 rounded-xl text-slate-100 focus:outline-none focus:border-blue-500 text-center"
-                      />
+                    <div className="p-4 bg-slate-950/70 border border-slate-800 rounded-xl space-y-3">
+                      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+                        <div>
+                          <label className="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-1">
+                            Marks Obtained (Max: {currentForm?.maxMarks} | Min Pass: {currentForm?.minPassingMarks ?? Math.round((currentForm?.maxMarks || 50) * 0.33)})
+                          </label>
+                          <input
+                            type="number"
+                            step={currentForm?.allowDecimals ? '0.1' : '1'}
+                            min={0}
+                            max={currentForm?.maxMarks}
+                            value={indivMarks}
+                            onChange={(e) => setIndivMarks(e.target.value)}
+                            placeholder="Enter Marks"
+                            className="w-48 py-2 px-3 text-lg font-mono font-bold bg-slate-900 border border-slate-700 rounded-xl text-slate-100 focus:outline-none focus:border-blue-500 text-center"
+                          />
+                        </div>
+
+                        {/* Live Result Status Badge */}
+                        <div className="text-left sm:text-right">
+                          <span className="block text-[10px] font-semibold uppercase text-slate-400 mb-1">
+                            Calculated Result Status
+                          </span>
+                          {(() => {
+                            const minPass = currentForm?.minPassingMarks ?? Math.round((currentForm?.maxMarks || 50) * 0.33);
+                            const num = indivMarks !== '' ? Number(indivMarks) : null;
+                            const resStatus = calculateResultStatus(num, indivPresent, minPass);
+
+                            if (resStatus === 'PASS') {
+                              return (
+                                <span className="inline-block px-3 py-1 rounded-lg font-mono text-xs font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                                  PASS
+                                </span>
+                              );
+                            }
+                            if (resStatus === 'FAIL') {
+                              return (
+                                <span className="inline-block px-3 py-1 rounded-lg font-mono text-xs font-bold bg-rose-500/20 text-rose-300 border border-rose-500/30">
+                                  FAIL
+                                </span>
+                              );
+                            }
+                            return (
+                              <span className="inline-block px-3 py-1 rounded-lg font-mono text-xs font-bold bg-amber-500/10 text-amber-300 border border-amber-500/20">
+                                PENDING
+                              </span>
+                            );
+                          })()}
+                        </div>
+                      </div>
                     </div>
                   ) : (
-                    <div className="p-3 bg-rose-500/10 border border-rose-500/20 text-rose-300 rounded-xl text-xs">
-                      Candidate marked absent. No marks will be awarded.
+                    <div className="p-3 bg-rose-500/10 border border-rose-500/20 text-rose-300 rounded-xl text-xs flex items-center justify-between">
+                      <span>Candidate marked absent. No marks will be awarded.</span>
+                      <span className="font-mono text-xs font-bold px-2 py-0.5 rounded bg-rose-950/60 text-rose-300 border border-rose-700">
+                        ABSENT
+                      </span>
                     </div>
                   )}
 

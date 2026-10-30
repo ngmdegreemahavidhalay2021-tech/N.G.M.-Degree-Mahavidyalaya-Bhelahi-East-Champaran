@@ -172,11 +172,61 @@ function generateSecureToken(): string {
   return token;
 }
 
+export function calculateResultStatus(
+  marksObtained: number | null | undefined,
+  isPresent: boolean,
+  minPassingMarks: number
+): 'PASS' | 'FAIL' | 'PENDING' | 'ABSENT' {
+  if (!isPresent) return 'ABSENT';
+  if (marksObtained === null || marksObtained === undefined || isNaN(marksObtained)) {
+    return 'PENDING';
+  }
+  return marksObtained >= minPassingMarks ? 'PASS' : 'FAIL';
+}
+
+export function validateMarksValue(
+  val: string | number | null | undefined,
+  maxMarks: number,
+  allowDecimals: boolean
+): { valid: boolean; error?: string; numericValue?: number | null } {
+  if (val === null || val === undefined || String(val).trim() === '') {
+    return { valid: true, numericValue: null };
+  }
+
+  const str = String(val).trim();
+  if (!allowDecimals && str.includes('.')) {
+    return { valid: false, error: 'Decimal marks are not permitted for this examination. Please input integer only.' };
+  }
+
+  const num = Number(str);
+  if (isNaN(num)) {
+    return { valid: false, error: 'Please enter a valid numeric mark.' };
+  }
+  if (num < 0) {
+    return { valid: false, error: 'Marks obtained cannot be negative.' };
+  }
+  if (num > maxMarks) {
+    return { valid: false, error: `Marks obtained (${num}) cannot exceed Maximum Marks (${maxMarks}).` };
+  }
+
+  return { valid: true, numericValue: num };
+}
+
 export async function getPracticalForms(): Promise<PracticalForm[]> {
   try {
     const snap = await getDocs(collection(db, 'practicalForms'));
     const list: PracticalForm[] = [];
-    snap.forEach((d) => list.push({ id: d.id, ...d.data() } as PracticalForm));
+    snap.forEach((d) => {
+      const data = d.data() as any;
+      const maxMarks = Number(data.maxMarks) || 50;
+      const minPassingMarks = data.minPassingMarks !== undefined ? Number(data.minPassingMarks) : Math.round(maxMarks * 0.33);
+      list.push({
+        id: d.id,
+        ...data,
+        maxMarks,
+        minPassingMarks,
+      } as PracticalForm);
+    });
     return list.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
   } catch (err) {
     handleFirestoreError(err, OperationType.LIST, 'practicalForms');
@@ -187,7 +237,10 @@ export async function getPracticalFormById(id: string): Promise<PracticalForm | 
   try {
     const snap = await getDoc(doc(db, 'practicalForms', id));
     if (!snap.exists()) return null;
-    return { id: snap.id, ...snap.data() } as PracticalForm;
+    const data = snap.data() as any;
+    const maxMarks = Number(data.maxMarks) || 50;
+    const minPassingMarks = data.minPassingMarks !== undefined ? Number(data.minPassingMarks) : Math.round(maxMarks * 0.33);
+    return { id: snap.id, ...data, maxMarks, minPassingMarks } as PracticalForm;
   } catch (err) {
     handleFirestoreError(err, OperationType.GET, `practicalForms/${id}`);
   }
@@ -199,7 +252,10 @@ export async function getPracticalFormByToken(token: string): Promise<PracticalF
     const snap = await getDocs(q);
     if (snap.empty) return null;
     const docData = snap.docs[0];
-    return { id: docData.id, ...docData.data() } as PracticalForm;
+    const data = docData.data() as any;
+    const maxMarks = Number(data.maxMarks) || 50;
+    const minPassingMarks = data.minPassingMarks !== undefined ? Number(data.minPassingMarks) : Math.round(maxMarks * 0.33);
+    return { id: docData.id, ...data, maxMarks, minPassingMarks } as PracticalForm;
   } catch (err) {
     handleFirestoreError(err, OperationType.GET, `practicalForms/by-token/${token}`);
   }
@@ -210,8 +266,13 @@ export async function createPracticalForm(data: Omit<PracticalForm, 'id' | 'toke
   const token = generateSecureToken();
   const now = new Date().toISOString();
 
+  const maxMarks = Number(data.maxMarks) || 50;
+  const minPassingMarks = data.minPassingMarks !== undefined ? Number(data.minPassingMarks) : Math.round(maxMarks * 0.33);
+
   const form: PracticalForm = {
     ...data,
+    maxMarks,
+    minPassingMarks,
     id,
     token,
     createdAt: now,
@@ -220,7 +281,7 @@ export async function createPracticalForm(data: Omit<PracticalForm, 'id' | 'toke
 
   try {
     await setDoc(doc(db, 'practicalForms', id), form);
-    await logActivity('PRACTICAL_FORM_CREATED', `Created practical examination form "${form.title}" (${form.subjectCode})`, 'PracticalForm', id);
+    await logActivity('PRACTICAL_FORM_CREATED', `Created practical examination form "${form.title}" (${form.subjectCode}) - Max: ${maxMarks}, Min Pass: ${minPassingMarks}`, 'PracticalForm', id);
     return form;
   } catch (err) {
     handleFirestoreError(err, OperationType.CREATE, 'practicalForms');
@@ -296,6 +357,32 @@ export async function regenerateFormToken(id: string): Promise<string> {
 
 // ==================== STUDENTS ====================
 
+export function generatePermanentStudentId(
+  departmentId: string,
+  course: string,
+  semester: string,
+  rollNumber: string,
+  academicSession?: string
+): string {
+  const cleanRoll = rollNumber.trim().toUpperCase().replace(/[^A-Z0-9]/g, '_');
+  const cleanDept = (departmentId || 'gen').replace(/[^a-zA-Z0-9]/g, '').slice(0, 8);
+  const cleanCourse = (course || 'GEN').trim().toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 8);
+  const cleanSem = (semester || 'SEM').trim().toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 6);
+  const cleanSess = (academicSession || 'CURR').trim().toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 9);
+  return `std_${cleanDept}_${cleanCourse}_${cleanSem}_${cleanSess}_${cleanRoll}`;
+}
+
+export async function transferSubjectDepartment(subjectId: string, targetDepartmentId: string): Promise<void> {
+  try {
+    await updateDoc(doc(db, 'subjects', subjectId), {
+      departmentId: targetDepartmentId,
+    });
+    await logActivity('SUBJECT_TRANSFERRED', `Transferred subject ${subjectId} to parent department/group ${targetDepartmentId}`, 'Subject', subjectId);
+  } catch (err) {
+    handleFirestoreError(err, OperationType.UPDATE, `subjects/${subjectId}`);
+  }
+}
+
 export async function getStudents(departmentId?: string): Promise<Student[]> {
   try {
     const colRef = collection(db, 'students');
@@ -311,7 +398,7 @@ export async function getStudents(departmentId?: string): Promise<Student[]> {
 
 export async function createStudent(data: Omit<Student, 'id' | 'createdAt'>): Promise<Student> {
   const cleanRoll = data.rollNumber.trim().toUpperCase();
-  const id = `std_${data.departmentId}_${cleanRoll.replace(/[^A-Z0-9]/g, '_')}`;
+  const id = generatePermanentStudentId(data.departmentId, data.course, data.semester, cleanRoll, data.academicSession);
 
   const student: Student = {
     ...data,
@@ -321,8 +408,8 @@ export async function createStudent(data: Omit<Student, 'id' | 'createdAt'>): Pr
   };
 
   try {
-    await setDoc(doc(db, 'students', id), student);
-    await logActivity('STUDENT_ADDED', `Registered candidate ${student.studentName} (Roll: ${cleanRoll})`, 'Student', id);
+    await setDoc(doc(db, 'students', id), student, { merge: true });
+    await logActivity('STUDENT_ADDED', `Registered candidate ${student.studentName} (Roll: ${cleanRoll}, Course: ${data.course}, Sem: ${data.semester})`, 'Student', id);
     return student;
   } catch (err) {
     handleFirestoreError(err, OperationType.CREATE, 'students');
@@ -338,7 +425,7 @@ export async function batchImportStudents(
 
     for (const data of studentsList) {
       const cleanRoll = data.rollNumber.trim().toUpperCase();
-      const id = `std_${data.departmentId || 'gen'}_${cleanRoll.replace(/[^A-Z0-9]/g, '_')}`;
+      const id = generatePermanentStudentId(data.departmentId, data.course, data.semester, cleanRoll, data.academicSession);
       const student: Student = {
         ...data,
         id,
@@ -405,10 +492,12 @@ export async function enrollStudentsInForm(
         studentId: s.id,
         rollNumber: s.rollNumber,
         studentName: s.studentName,
-        departmentId: s.departmentId,
-        course: s.course,
-        semester: s.semester,
-        section: s.section,
+        fatherName: s.fatherName || '',
+        departmentId: s.departmentId || practicalForm.departmentId,
+        course: s.course || practicalForm.course,
+        semester: s.semester || practicalForm.semester,
+        section: s.section || practicalForm.section || '',
+        academicSession: s.academicSession || practicalForm.examYear || '',
         status: 'verified',
         enrolledAt: now,
       };
@@ -464,7 +553,15 @@ export async function saveSingleMark(record: Omit<MarksRecord, 'id' | 'updatedAt
 
 export async function saveBulkMarks(
   practicalFormId: string,
-  records: Array<{ studentId: string; rollNumber: string; studentName: string; marksObtained: number | null; isPresent: boolean; remarks?: string }>,
+  records: Array<{
+    studentId: string;
+    rollNumber: string;
+    studentName: string;
+    marksObtained: number | null;
+    isPresent: boolean;
+    remarks?: string;
+    minPassingMarks?: number;
+  }>,
   updatedBy = 'Examiner'
 ): Promise<void> {
   try {
@@ -473,6 +570,9 @@ export async function saveBulkMarks(
 
     records.forEach((r) => {
       const id = `mark_${practicalFormId}_${r.studentId}`;
+      const minPass = r.minPassingMarks ?? 33;
+      const resultStatus = calculateResultStatus(r.marksObtained, r.isPresent, minPass);
+
       const data: MarksRecord = {
         id,
         practicalFormId,
@@ -482,6 +582,7 @@ export async function saveBulkMarks(
         marksObtained: r.isPresent ? r.marksObtained : null,
         isPresent: r.isPresent,
         remarks: r.remarks || '',
+        resultStatus,
         updatedAt: now,
         updatedBy,
       };
@@ -589,6 +690,15 @@ export async function seedInitialCollegeData(): Promise<void> {
       description: 'Bachelor of Computer Applications',
     });
 
+    // Parent Department / Group (History & AIH&C Group managed by same faculty)
+    const deptHistoryGroup = await createDepartment({
+      code: 'HIST-GRP',
+      name: 'History & AIH&C Group',
+      description: 'Joint humanities division managing History and Ancient Indian History & Culture',
+      coordinator: 'Dr. R. P. Sharma (Faculty in-charge for History & AIH&C)',
+      isGroup: true,
+    });
+
     // 2. Subjects
     const subjDSA = await createSubject({
       departmentId: deptCS.id,
@@ -617,18 +727,39 @@ export async function seedInitialCollegeData(): Promise<void> {
       section: 'Section A',
     });
 
+    // Subjects under Parent Department "History & AIH&C Group"
+    const subjHistory = await createSubject({
+      departmentId: deptHistoryGroup.id,
+      code: 'HIST301P',
+      name: 'History - Historical Methods & Source Analysis Practical',
+      course: 'B.A. History',
+      semester: 'Semester III',
+      section: 'Section A',
+    });
+
+    const subjAIHC = await createSubject({
+      departmentId: deptHistoryGroup.id,
+      code: 'AIHC302P',
+      name: 'AIH&C - Epigraphy & Numismatics Practical Evaluation',
+      course: 'B.A. AIH&C',
+      semester: 'Semester III',
+      section: 'Section A',
+    });
+
     // 3. Students
     const sampleStudents: Array<Omit<Student, 'id' | 'createdAt'>> = [
-      { rollNumber: '24CS001', studentName: 'Aarav Sharma', departmentId: deptCS.id, course: 'B.Sc. Computer Science', semester: 'Semester III', section: 'A' },
-      { rollNumber: '24CS002', studentName: 'Priya Patel', departmentId: deptCS.id, course: 'B.Sc. Computer Science', semester: 'Semester III', section: 'A' },
-      { rollNumber: '24CS003', studentName: 'Rohan Iyer', departmentId: deptCS.id, course: 'B.Sc. Computer Science', semester: 'Semester III', section: 'A' },
-      { rollNumber: '24CS004', studentName: 'Ananya Roy', departmentId: deptCS.id, course: 'B.Sc. Computer Science', semester: 'Semester III', section: 'A' },
-      { rollNumber: '24CS005', studentName: 'Vikram Singh', departmentId: deptCS.id, course: 'B.Sc. Computer Science', semester: 'Semester III', section: 'A' },
-      { rollNumber: '24CS006', studentName: 'Neha Kulkarni', departmentId: deptCS.id, course: 'B.Sc. Computer Science', semester: 'Semester III', section: 'A' },
-      { rollNumber: '24BCA101', studentName: 'Siddharth Gupta', departmentId: deptBCA.id, course: 'BCA', semester: 'Semester IV', section: 'B' },
-      { rollNumber: '24BCA102', studentName: 'Meera Joshi', departmentId: deptBCA.id, course: 'BCA', semester: 'Semester IV', section: 'B' },
-      { rollNumber: '24BCA103', studentName: 'Aditya Rao', departmentId: deptBCA.id, course: 'BCA', semester: 'Semester IV', section: 'B' },
-      { rollNumber: '24PHY201', studentName: 'Tanvi Deshmukh', departmentId: deptPhysics.id, course: 'B.Sc. Physics', semester: 'Semester II', section: 'A' },
+      { rollNumber: '24CS001', studentName: 'Aarav Sharma', fatherName: 'Mr. Rajesh Sharma', departmentId: deptCS.id, course: 'B.Sc. Computer Science', semester: 'Semester III', section: 'A', academicSession: '2024-2025' },
+      { rollNumber: '24CS002', studentName: 'Priya Patel', fatherName: 'Mr. Suresh Patel', departmentId: deptCS.id, course: 'B.Sc. Computer Science', semester: 'Semester III', section: 'A', academicSession: '2024-2025' },
+      { rollNumber: '24CS003', studentName: 'Rohan Iyer', fatherName: 'Mr. Venkat Iyer', departmentId: deptCS.id, course: 'B.Sc. Computer Science', semester: 'Semester III', section: 'A', academicSession: '2024-2025' },
+      { rollNumber: '24CS004', studentName: 'Ananya Roy', fatherName: 'Mr. Subhash Roy', departmentId: deptCS.id, course: 'B.Sc. Computer Science', semester: 'Semester III', section: 'A', academicSession: '2024-2025' },
+      { rollNumber: '24CS005', studentName: 'Vikram Singh', fatherName: 'Mr. Mahendra Singh', departmentId: deptCS.id, course: 'B.Sc. Computer Science', semester: 'Semester III', section: 'A', academicSession: '2024-2025' },
+      { rollNumber: '24CS006', studentName: 'Neha Kulkarni', fatherName: 'Mr. Nitin Kulkarni', departmentId: deptCS.id, course: 'B.Sc. Computer Science', semester: 'Semester III', section: 'A', academicSession: '2024-2025' },
+      { rollNumber: '24BCA101', studentName: 'Siddharth Gupta', fatherName: 'Mr. Ashok Gupta', departmentId: deptBCA.id, course: 'BCA', semester: 'Semester IV', section: 'B', academicSession: '2024-2025' },
+      { rollNumber: '24BCA102', studentName: 'Meera Joshi', fatherName: 'Mr. Hemant Joshi', departmentId: deptBCA.id, course: 'BCA', semester: 'Semester IV', section: 'B', academicSession: '2024-2025' },
+      { rollNumber: '24BCA103', studentName: 'Aditya Rao', fatherName: 'Mr. Krishna Rao', departmentId: deptBCA.id, course: 'BCA', semester: 'Semester IV', section: 'B', academicSession: '2024-2025' },
+      { rollNumber: '24PHY201', studentName: 'Tanvi Deshmukh', fatherName: 'Mr. Sanjay Deshmukh', departmentId: deptPhysics.id, course: 'B.Sc. Physics', semester: 'Semester II', section: 'A', academicSession: '2024-2025' },
+      { rollNumber: '24HA001', studentName: 'Vivek Upadhyay', fatherName: 'Mr. C. P. Upadhyay', departmentId: deptHistoryGroup.id, course: 'B.A. History', semester: 'Semester III', section: 'A', academicSession: '2024-2025' },
+      { rollNumber: '24HA002', studentName: 'Pooja Tiwari', fatherName: 'Mr. Sunil Tiwari', departmentId: deptHistoryGroup.id, course: 'B.A. AIH&C', semester: 'Semester III', section: 'A', academicSession: '2024-2025' },
     ];
 
     await batchImportStudents(sampleStudents);
@@ -649,6 +780,7 @@ export async function seedInitialCollegeData(): Promise<void> {
       examName: 'Winter 2024 End Semester Practical Evaluation',
       examYear: '2024-2025',
       maxMarks: 50,
+      minPassingMarks: 17,
       instructions: '1. Verify candidate identity with college admit card.\n2. Record execution output and viva score.\n3. Decimal marks allowed up to 1 decimal place.\n4. Save marks before leaving.',
       examDate: new Date().toISOString().slice(0, 10),
       allowDecimals: true,
@@ -664,11 +796,11 @@ export async function seedInitialCollegeData(): Promise<void> {
     await saveBulkMarks(
       practicalForm.id,
       [
-        { studentId: csStudents[0].id, rollNumber: csStudents[0].rollNumber, studentName: csStudents[0].studentName, marksObtained: 46.5, isPresent: true, remarks: 'Excellent binary tree implementation' },
-        { studentId: csStudents[1].id, rollNumber: csStudents[1].rollNumber, studentName: csStudents[1].studentName, marksObtained: 42.0, isPresent: true, remarks: 'Good viva performance' },
-        { studentId: csStudents[2].id, rollNumber: csStudents[2].rollNumber, studentName: csStudents[2].studentName, marksObtained: 38.5, isPresent: true, remarks: 'Minor logic error in linked list' },
-        { studentId: csStudents[3].id, rollNumber: csStudents[3].rollNumber, studentName: csStudents[3].studentName, marksObtained: 49.0, isPresent: true, remarks: 'Outstanding graph traversal' },
-        { studentId: csStudents[4].id, rollNumber: csStudents[4].rollNumber, studentName: csStudents[4].studentName, marksObtained: null, isPresent: false, remarks: 'Reported absent' },
+        { studentId: csStudents[0].id, rollNumber: csStudents[0].rollNumber, studentName: csStudents[0].studentName, marksObtained: 46.5, isPresent: true, remarks: 'Excellent binary tree implementation', minPassingMarks: 17 },
+        { studentId: csStudents[1].id, rollNumber: csStudents[1].rollNumber, studentName: csStudents[1].studentName, marksObtained: 42.0, isPresent: true, remarks: 'Good viva performance', minPassingMarks: 17 },
+        { studentId: csStudents[2].id, rollNumber: csStudents[2].rollNumber, studentName: csStudents[2].studentName, marksObtained: 15.0, isPresent: true, remarks: 'Below passing threshold in coding viva', minPassingMarks: 17 },
+        { studentId: csStudents[3].id, rollNumber: csStudents[3].rollNumber, studentName: csStudents[3].studentName, marksObtained: 49.0, isPresent: true, remarks: 'Outstanding graph traversal', minPassingMarks: 17 },
+        { studentId: csStudents[4].id, rollNumber: csStudents[4].rollNumber, studentName: csStudents[4].studentName, marksObtained: null, isPresent: false, remarks: 'Reported absent', minPassingMarks: 17 },
       ],
       'Prof. Dr. V. K. Verma (Examiner)'
     );

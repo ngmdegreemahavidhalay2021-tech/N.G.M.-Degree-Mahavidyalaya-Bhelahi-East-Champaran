@@ -15,6 +15,7 @@ export interface ExportFilterOptions {
 
 export interface UnifiedExportRecord {
   departmentName: string;
+  parentGroupName?: string;
   course: string;
   semester: string;
   section: string;
@@ -24,10 +25,13 @@ export interface UnifiedExportRecord {
   examinationYear: string;
   examDate: string;
   maxMarks: number;
+  minPassingMarks: number;
   rollNumber: string;
   studentName: string;
+  fatherName: string;
   marksObtained: number | string;
   status: 'PRESENT' | 'ABSENT' | 'PENDING';
+  resultStatus: 'PASS' | 'FAIL' | 'ABSENT' | 'PENDING';
   remarks: string;
   exportDate: string;
 }
@@ -43,7 +47,7 @@ export function generateExportRecords(
   const records: UnifiedExportRecord[] = [];
   const exportDate = new Date().toISOString().slice(0, 10);
 
-  const deptLookup = new Map(departments.map((d) => [d.id, d.name]));
+  const deptLookup = new Map(departments.map((d) => [d.id, d]));
   const subjLookup = new Map(subjects.map((s) => [s.id, s]));
 
   forms.forEach((form) => {
@@ -58,6 +62,8 @@ export function generateExportRecords(
     const enrollments = enrollmentsMap[form.id] || [];
     const marks = marksMap[form.id] || [];
     const marksByStudentId = new Map(marks.map((m) => [m.studentId, m]));
+    const deptObj = deptLookup.get(form.departmentId);
+    const minPass = form.minPassingMarks ?? Math.round(form.maxMarks * 0.33);
 
     enrollments.forEach((enr) => {
       const markRec = marksByStudentId.get(enr.studentId);
@@ -66,14 +72,17 @@ export function generateExportRecords(
 
       let status: 'PRESENT' | 'ABSENT' | 'PENDING' = 'PENDING';
       let score: number | string = '-';
+      let resultStatus: 'PASS' | 'FAIL' | 'ABSENT' | 'PENDING' = 'PENDING';
 
       if (markRec) {
         if (!markRec.isPresent) {
           status = 'ABSENT';
           score = 'ABSENT';
+          resultStatus = 'ABSENT';
         } else if (hasMarks) {
           status = 'PRESENT';
           score = markRec.marksObtained!;
+          resultStatus = Number(markRec.marksObtained) >= minPass ? 'PASS' : 'FAIL';
         }
       }
 
@@ -90,7 +99,8 @@ export function generateExportRecords(
       }
 
       records.push({
-        departmentName: deptLookup.get(form.departmentId) || form.departmentId,
+        departmentName: deptObj?.name || form.departmentId,
+        parentGroupName: deptObj?.isGroup ? deptObj.name : undefined,
         course: form.course,
         semester: form.semester,
         section: form.section || 'All',
@@ -100,10 +110,13 @@ export function generateExportRecords(
         examinationYear: form.examYear,
         examDate: form.examDate,
         maxMarks: form.maxMarks,
+        minPassingMarks: minPass,
         rollNumber: enr.rollNumber,
         studentName: enr.studentName,
+        fatherName: enr.fatherName || '',
         marksObtained: score,
         status,
+        resultStatus,
         remarks: markRec?.remarks || '',
         exportDate,
       });
@@ -124,7 +137,8 @@ export function exportMasterCollegeWorkbook(
   const masterHeaders = [
     'Roll Number',
     'Student Name',
-    'Department',
+    "Father's Name",
+    'Department / Parent Group',
     'Course',
     'Semester',
     'Section',
@@ -134,8 +148,10 @@ export function exportMasterCollegeWorkbook(
     'Academic Year',
     'Exam Date',
     'Max Marks',
+    'Min Passing Marks',
     'Marks Obtained',
     'Attendance Status',
+    'Result Status',
     'Remarks',
     'Export Date',
   ];
@@ -143,7 +159,8 @@ export function exportMasterCollegeWorkbook(
   const masterRows = records.map((r) => [
     r.rollNumber,
     r.studentName,
-    r.departmentName,
+    r.fatherName,
+    r.parentGroupName ? `${r.departmentName} (${r.parentGroupName})` : r.departmentName,
     r.course,
     r.semester,
     r.section,
@@ -153,8 +170,10 @@ export function exportMasterCollegeWorkbook(
     r.examinationYear,
     r.examDate,
     r.maxMarks,
+    r.minPassingMarks,
     r.marksObtained,
     r.status,
+    r.resultStatus,
     r.remarks,
     r.exportDate,
   ]);
@@ -294,22 +313,49 @@ export function exportSingleFormExcel(
   institutionName = 'NGM Degree Mahavidyalaya'
 ) {
   const marksMap = new Map(marks.map((m) => [m.studentId, m]));
-  const headers = ['S.No.', 'Roll Number', 'Student Name', 'Course', 'Semester', 'Attendance', `Marks (/${form.maxMarks})`, 'Remarks'];
+  const minPass = form.minPassingMarks ?? Math.round(form.maxMarks * 0.33);
+  const headers = [
+    'S.No.',
+    'Roll Number',
+    'Student Name',
+    "Father's Name",
+    'Course',
+    'Semester',
+    'Section',
+    'Attendance',
+    `Maximum Marks (${form.maxMarks})`,
+    `Min Passing Marks (${minPass})`,
+    'Marks Obtained',
+    'Result Status',
+    'Remarks',
+  ];
 
   const rows = enrollments.map((enr, idx) => {
     const markRec = marksMap.get(enr.studentId);
     const isPresent = markRec?.isPresent ?? false;
-    const score = isPresent ? (markRec?.marksObtained ?? '') : 'ABSENT';
+    const hasScore = markRec && markRec.marksObtained !== null && markRec.marksObtained !== undefined;
+    const score = isPresent ? (hasScore ? markRec.marksObtained! : '') : 'ABSENT';
     const status = markRec ? (isPresent ? 'PRESENT' : 'ABSENT') : 'PENDING';
+    
+    let resultStatus: 'PASS' | 'FAIL' | 'ABSENT' | 'PENDING' = 'PENDING';
+    if (markRec) {
+      if (!isPresent) resultStatus = 'ABSENT';
+      else if (hasScore) resultStatus = Number(markRec.marksObtained) >= minPass ? 'PASS' : 'FAIL';
+    }
 
     return [
       idx + 1,
       enr.rollNumber,
       enr.studentName,
+      enr.fatherName || '-',
       form.course,
       form.semester,
+      enr.section || form.section || '-',
       status,
+      form.maxMarks,
+      minPass,
       score,
+      resultStatus,
       markRec?.remarks || '',
     ];
   });
@@ -317,7 +363,7 @@ export function exportSingleFormExcel(
   const ws = XLSX.utils.aoa_to_sheet([
     [institutionName.toUpperCase()],
     [`PRACTICAL EXAMINATION MARKSHEET - ${form.title}`],
-    [`Subject: ${form.subjectName} (${form.subjectCode}) | Date: ${form.examDate} | Max Marks: ${form.maxMarks}`],
+    [`Subject: ${form.subjectName} (${form.subjectCode}) | Date: ${form.examDate} | Max Marks: ${form.maxMarks} | Min Pass Marks: ${minPass}`],
     [],
     headers,
     ...rows,

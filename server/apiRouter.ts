@@ -475,3 +475,88 @@ apiRouter.post(['/auth/reset-password', '/api/auth/reset-password'], (req: Reque
     message: 'Administrator password reset successfully. You may now log in with your new password.',
   });
 });
+
+/**
+ * POST /api/marks/validate
+ * Server-side validation for marks entries against examination form limits
+ */
+apiRouter.post(['/marks/validate', '/api/marks/validate'], (req: Request, res: Response): any => {
+  const { maxMarks, minPassingMarks, allowDecimals, records } = req.body || {};
+
+  const numMax = Number(maxMarks);
+  const numMin = Number(minPassingMarks);
+
+  if (isNaN(numMax) || numMax <= 0) {
+    return res.status(400).json({ valid: false, error: 'Maximum marks must be a positive number.' });
+  }
+
+  if (isNaN(numMin) || numMin < 0) {
+    return res.status(400).json({ valid: false, error: 'Minimum passing marks cannot be negative.' });
+  }
+
+  if (numMin > numMax) {
+    return res.status(400).json({
+      valid: false,
+      error: `Minimum Passing Marks (${numMin}) cannot exceed Maximum Marks (${numMax}).`,
+    });
+  }
+
+  if (!Array.isArray(records)) {
+    return res.status(400).json({ valid: false, error: 'Records must be an array.' });
+  }
+
+  const errors: string[] = [];
+  const processed = records.map((r: any, idx: number) => {
+    const isPresent = r.isPresent ?? true;
+    let marksObtained = r.marksObtained;
+    let status: 'PASS' | 'FAIL' | 'PENDING' | 'ABSENT' = 'PENDING';
+
+    if (!isPresent) {
+      status = 'ABSENT';
+      marksObtained = null;
+    } else if (marksObtained !== null && marksObtained !== undefined && String(marksObtained).trim() !== '') {
+      const valStr = String(marksObtained).trim();
+      if (!allowDecimals && valStr.includes('.')) {
+        errors.push(`Row ${idx + 1} (${r.rollNumber || 'Candidate'}): Decimal marks are not permitted.`);
+      }
+      const valNum = Number(valStr);
+      if (isNaN(valNum)) {
+        errors.push(`Row ${idx + 1} (${r.rollNumber || 'Candidate'}): Invalid numeric mark.`);
+      } else if (valNum < 0) {
+        errors.push(`Row ${idx + 1} (${r.rollNumber || 'Candidate'}): Marks cannot be negative.`);
+      } else if (valNum > numMax) {
+        errors.push(`Row ${idx + 1} (${r.rollNumber || 'Candidate'}): Marks (${valNum}) exceed maximum marks (${numMax}).`);
+      } else {
+        marksObtained = valNum;
+        status = valNum >= numMin ? 'PASS' : 'FAIL';
+      }
+    } else {
+      status = 'PENDING';
+      marksObtained = null;
+    }
+
+    return {
+      studentId: r.studentId,
+      rollNumber: r.rollNumber,
+      marksObtained,
+      isPresent,
+      status,
+    };
+  });
+
+  if (errors.length > 0) {
+    return res.status(400).json({
+      valid: false,
+      error: errors[0],
+      allErrors: errors,
+    });
+  }
+
+  return res.json({
+    valid: true,
+    processed,
+    maxMarks: numMax,
+    minPassingMarks: numMin,
+  });
+});
+

@@ -17,20 +17,22 @@
     },
     "Department": {
       "title": "Department",
-      "description": "College academic department",
+      "description": "College academic department or parent group",
       "type": "object",
       "properties": {
         "id": { "type": "string" },
         "code": { "type": "string" },
         "name": { "type": "string" },
         "description": { "type": "string" },
+        "coordinator": { "type": "string" },
+        "isGroup": { "type": "boolean" },
         "createdAt": { "type": "string" }
       },
       "required": ["id", "code", "name"]
     },
     "Subject": {
       "title": "Subject",
-      "description": "Curriculum course subject assigned to department",
+      "description": "Curriculum course subject assigned to parent department or group",
       "type": "object",
       "properties": {
         "id": { "type": "string" },
@@ -61,6 +63,7 @@
         "examName": { "type": "string" },
         "examYear": { "type": "string" },
         "maxMarks": { "type": "number" },
+        "minPassingMarks": { "type": "number" },
         "instructions": { "type": "string" },
         "examDate": { "type": "string" },
         "allowDecimals": { "type": "boolean" },
@@ -81,10 +84,12 @@
         "id": { "type": "string" },
         "rollNumber": { "type": "string" },
         "studentName": { "type": "string" },
+        "fatherName": { "type": "string" },
         "departmentId": { "type": "string" },
         "course": { "type": "string" },
         "semester": { "type": "string" },
         "section": { "type": "string" },
+        "academicSession": { "type": "string" },
         "createdAt": { "type": "string" }
       },
       "required": ["id", "rollNumber", "studentName"]
@@ -99,10 +104,12 @@
         "studentId": { "type": "string" },
         "rollNumber": { "type": "string" },
         "studentName": { "type": "string" },
+        "fatherName": { "type": "string" },
         "departmentId": { "type": "string" },
         "course": { "type": "string" },
         "semester": { "type": "string" },
         "section": { "type": "string" },
+        "academicSession": { "type": "string" },
         "status": { "type": "string", "enum": ["enrolled", "verified", "removed"] },
         "enrolledAt": { "type": "string" }
       },

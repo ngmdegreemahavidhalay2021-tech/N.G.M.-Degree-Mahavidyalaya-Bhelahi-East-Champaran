@@ -5,6 +5,8 @@ export interface Department {
   code: string;
   name: string;
   description?: string;
+  coordinator?: string; // Head/Faculty coordinator in charge (e.g. "Prof. Sharma (Managing History & AIH&C)")
+  isGroup?: boolean; // Whether designated as a Parent Department / Department Group
   createdAt: string;
 }
 
@@ -32,6 +34,7 @@ export interface PracticalForm {
   examName: string;
   examYear: string;
   maxMarks: number;
+  minPassingMarks: number; // Minimum Passing Marks (e.g. 33)
   instructions?: string;
   examDate: string;
   allowDecimals: boolean;
@@ -47,10 +50,12 @@ export interface Student {
   id: string; // Permanent studentId
   rollNumber: string;
   studentName: string;
+  fatherName?: string;
   departmentId: string;
   course: string;
   semester: string;
   section?: string;
+  academicSession?: string;
   createdAt: string;
 }
 
@@ -60,10 +65,12 @@ export interface FormEnrollment {
   studentId: string;
   rollNumber: string;
   studentName: string;
+  fatherName?: string;
   departmentId: string;
   course: string;
   semester: string;
   section?: string;
+  academicSession?: string;
   status: 'enrolled' | 'verified' | 'removed';
   enrolledAt: string;
 }
@@ -77,6 +84,7 @@ export interface MarksRecord {
   marksObtained: number | null;
   isPresent: boolean;
   remarks?: string;
+  resultStatus?: 'PASS' | 'FAIL' | 'PENDING' | 'ABSENT';
   updatedAt: string;
   updatedBy: string;
 }

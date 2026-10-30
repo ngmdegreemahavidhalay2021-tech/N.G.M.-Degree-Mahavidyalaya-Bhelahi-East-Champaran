@@ -11,12 +11,15 @@ import {
   CheckCircle,
   AlertCircle,
   X,
+  Layers,
+  ArrowRightLeft,
 } from 'lucide-react';
 import { Subject, Department, PracticalForm } from '../types';
 import {
   createSubject,
   updateSubject,
   deleteSubject,
+  transferSubjectDepartment,
 } from '../services/collegeService';
 
 interface SubjectModuleProps {
@@ -38,6 +41,11 @@ export const SubjectModule: React.FC<SubjectModuleProps> = ({
   const [deptFilter, setDeptFilter] = useState('ALL');
   const [showAddModal, setShowAddModal] = useState(false);
   const [editingSubj, setEditingSubj] = useState<Subject | null>(null);
+
+  // Transfer subject state
+  const [transferringSubjId, setTransferringSubjId] = useState<string | null>(null);
+  const [targetDeptId, setTargetDeptId] = useState('');
+  const [transferLoading, setTransferLoading] = useState(false);
 
   // Form fields
   const [departmentId, setDepartmentId] = useState(departments[0]?.id || '');
@@ -74,7 +82,22 @@ export const SubjectModule: React.FC<SubjectModuleProps> = ({
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!code.trim() || !name.trim() || !departmentId) {
-      setError('Please provide department, subject code and subject name.');
+      setError('Please provide parent department, subject code and subject name.');
+      return;
+    }
+
+    const cleanCode = code.trim().toUpperCase();
+    const cleanName = name.trim();
+
+    // Prevent duplicate subject entries
+    const dup = subjects.find(
+      (s) => s.code.trim().toUpperCase() === cleanCode && s.id !== editingSubj?.id
+    );
+    if (dup) {
+      const existingDept = deptMap.get(dup.departmentId);
+      setError(
+        `Duplicate Subject Code: Subject "${cleanCode}" already exists as "${dup.name}" under ${existingDept?.name || 'another group'}. Each subject must retain its unique subject code and identity.`
+      );
       return;
     }
 
@@ -85,8 +108,8 @@ export const SubjectModule: React.FC<SubjectModuleProps> = ({
       if (editingSubj) {
         await updateSubject(editingSubj.id, {
           departmentId,
-          code: code.trim().toUpperCase(),
-          name: name.trim(),
+          code: cleanCode,
+          name: cleanName,
           course,
           semester,
           section,
@@ -95,8 +118,8 @@ export const SubjectModule: React.FC<SubjectModuleProps> = ({
       } else {
         await createSubject({
           departmentId,
-          code: code.trim().toUpperCase(),
-          name: name.trim(),
+          code: cleanCode,
+          name: cleanName,
           course,
           semester,
           section,
@@ -109,6 +132,20 @@ export const SubjectModule: React.FC<SubjectModuleProps> = ({
       setError(err.message || 'Failed to save subject');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleTransferSubject = async (subjectId: string, newDeptId: string) => {
+    if (!newDeptId) return;
+    try {
+      setTransferLoading(true);
+      await transferSubjectDepartment(subjectId, newDeptId);
+      setTransferringSubjId(null);
+      onRefresh();
+    } catch (err: any) {
+      alert(err.message || 'Failed to transfer subject');
+    } finally {
+      setTransferLoading(false);
     }
   };
 
@@ -147,7 +184,7 @@ export const SubjectModule: React.FC<SubjectModuleProps> = ({
             <h2 className="text-xl font-bold text-slate-100">Subject Management</h2>
           </div>
           <p className="text-xs text-slate-400 mt-1">
-            Configure curriculum courses, syllabus codes, department mappings, and generate multiple examination forms.
+            Configure curriculum courses, syllabus codes, parent department/group assignments, and generate examination forms.
           </p>
         </div>
 
@@ -180,10 +217,10 @@ export const SubjectModule: React.FC<SubjectModuleProps> = ({
             onChange={(e) => setDeptFilter(e.target.value)}
             className="px-2.5 py-1.5 bg-slate-950 border border-slate-700 rounded-lg text-xs text-slate-200 focus:outline-none focus:border-indigo-500"
           >
-            <option value="ALL">All Departments</option>
+            <option value="ALL">All Parent Departments & Groups</option>
             {departments.map((d) => (
               <option key={d.id} value={d.id}>
-                {d.name} ({d.code})
+                {d.name} ({d.code}) {d.isGroup ? '• Parent Group' : ''}
               </option>
             ))}
           </select>
@@ -198,7 +235,7 @@ export const SubjectModule: React.FC<SubjectModuleProps> = ({
               <tr>
                 <th className="py-3 px-4 w-28">Subject Code</th>
                 <th className="py-3 px-4">Subject Name</th>
-                <th className="py-3 px-4">Department</th>
+                <th className="py-3 px-4">Parent Dept / Group</th>
                 <th className="py-3 px-4">Course & Semester</th>
                 <th className="py-3 px-4 text-center">Forms Built</th>
                 <th className="py-3 px-4 text-right">Actions</th>
@@ -228,9 +265,17 @@ export const SubjectModule: React.FC<SubjectModuleProps> = ({
                       </td>
                       <td className="py-3 px-4 text-slate-300">
                         {dept ? (
-                          <span className="px-2 py-0.5 rounded bg-slate-950 text-slate-300 border border-slate-800">
-                            {dept.name} ({dept.code})
-                          </span>
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <span className="px-2 py-0.5 rounded bg-slate-950 text-slate-300 border border-slate-800 font-medium">
+                              {dept.name} ({dept.code})
+                            </span>
+                            {dept.isGroup && (
+                              <span className="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded bg-indigo-500/20 text-indigo-300 border border-indigo-500/30">
+                                <Layers className="w-2.5 h-2.5" />
+                                Parent Group
+                              </span>
+                            )}
+                          </div>
                         ) : (
                           '-'
                         )}
@@ -242,7 +287,54 @@ export const SubjectModule: React.FC<SubjectModuleProps> = ({
                         {subjForms.length}
                       </td>
                       <td className="py-3 px-4 text-right">
-                        <div className="flex items-center justify-end gap-1.5">
+                        <div className="flex items-center justify-end gap-1.5 flex-wrap">
+                          {transferringSubjId === subj.id ? (
+                            <div className="flex items-center gap-1.5 bg-slate-950 p-1.5 rounded-lg border border-slate-700">
+                              <select
+                                value={targetDeptId}
+                                onChange={(e) => setTargetDeptId(e.target.value)}
+                                className="px-2 py-1 bg-slate-900 border border-slate-700 rounded text-xs text-slate-200"
+                              >
+                                <option value="">Select New Parent...</option>
+                                {departments
+                                  .filter((d) => d.id !== subj.departmentId)
+                                  .map((d) => (
+                                    <option key={d.id} value={d.id}>
+                                      {d.name} ({d.code}) {d.isGroup ? '• Group' : ''}
+                                    </option>
+                                  ))}
+                              </select>
+                              <button
+                                type="button"
+                                disabled={!targetDeptId || transferLoading}
+                                onClick={() => handleTransferSubject(subj.id, targetDeptId)}
+                                className="px-2 py-1 rounded bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs disabled:opacity-50"
+                              >
+                                {transferLoading ? '...' : 'Transfer'}
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setTransferringSubjId(null)}
+                                className="px-1 text-slate-400 hover:text-slate-200 text-xs"
+                              >
+                                ×
+                              </button>
+                            </div>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setTransferringSubjId(subj.id);
+                                setTargetDeptId('');
+                              }}
+                              className="inline-flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-semibold bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 transition-colors"
+                              title="Transfer subject to another Parent Department / Group"
+                            >
+                              <ArrowRightLeft className="w-3 h-3 text-indigo-400" />
+                              <span>Transfer</span>
+                            </button>
+                          )}
+
                           <button
                             onClick={() => onCreateFormForSubject(subj)}
                             className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-semibold bg-emerald-600/10 hover:bg-emerald-600/20 text-emerald-300 border border-emerald-500/20 transition-colors"
@@ -275,7 +367,6 @@ export const SubjectModule: React.FC<SubjectModuleProps> = ({
           </table>
         </div>
       </div>
-
       {/* Modal Add / Edit */}
       {(showAddModal || editingSubj) && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm">
@@ -304,7 +395,7 @@ export const SubjectModule: React.FC<SubjectModuleProps> = ({
             <form onSubmit={handleSave} className="space-y-4">
               <div>
                 <label className="block text-xs font-semibold uppercase text-slate-300 mb-1">
-                  Assign to Department *
+                  Assign to Parent Department / Group *
                 </label>
                 <select
                   required
@@ -314,7 +405,7 @@ export const SubjectModule: React.FC<SubjectModuleProps> = ({
                 >
                   {departments.map((d) => (
                     <option key={d.id} value={d.id}>
-                      {d.name} ({d.code})
+                      {d.name} ({d.code}) {d.isGroup ? '— [Parent Group]' : ''}
                     </option>
                   ))}
                 </select>

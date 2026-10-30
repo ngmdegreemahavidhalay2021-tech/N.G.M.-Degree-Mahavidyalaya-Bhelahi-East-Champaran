@@ -19,6 +19,7 @@ import {
   getFormMarks,
   saveBulkMarks,
   saveSingleMark,
+  calculateResultStatus,
 } from '../services/collegeService';
 import { exportSingleFormExcel } from '../lib/collegeExport';
 
@@ -172,6 +173,7 @@ export const PublicPracticalForm: React.FC<PublicPracticalFormProps> = ({
     try {
       setSaving(true);
       setError(null);
+      const minPass = form.minPassingMarks ?? Math.round(form.maxMarks * 0.33);
 
       const records = enrollments.map((enr) => {
         const inp = inputMap[enr.studentId] || { marks: '', isPresent: true, remarks: '' };
@@ -182,6 +184,7 @@ export const PublicPracticalForm: React.FC<PublicPracticalFormProps> = ({
           marksObtained: inp.isPresent && inp.marks !== '' ? Number(inp.marks) : null,
           isPresent: inp.isPresent,
           remarks: inp.remarks,
+          minPassingMarks: minPass,
         };
       });
 
@@ -239,6 +242,9 @@ export const PublicPracticalForm: React.FC<PublicPracticalFormProps> = ({
 
     try {
       setSaving(true);
+      const minPass = form.minPassingMarks ?? Math.round(form.maxMarks * 0.33);
+      const resStatus = calculateResultStatus(indivPresent ? num : null, indivPresent, minPass);
+
       await saveSingleMark({
         practicalFormId: form.id,
         studentId: selectedStudent.studentId,
@@ -247,6 +253,7 @@ export const PublicPracticalForm: React.FC<PublicPracticalFormProps> = ({
         marksObtained: indivPresent ? num : null,
         isPresent: indivPresent,
         remarks: indivRemarks,
+        resultStatus: resStatus,
         updatedBy: examinerName || 'Public Examiner (Individual Mode)',
       });
 
@@ -385,10 +392,14 @@ export const PublicPracticalForm: React.FC<PublicPracticalFormProps> = ({
             </p>
           </div>
 
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 p-3 bg-slate-50 rounded-xl border border-slate-200 text-xs">
+          <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 p-3 bg-slate-50 rounded-xl border border-slate-200 text-xs">
             <div>
               <span className="text-slate-500 block">Maximum Marks:</span>
               <strong className="text-base text-blue-700 font-mono">{form.maxMarks}</strong>
+            </div>
+            <div>
+              <span className="text-slate-500 block">Min Passing Marks:</span>
+              <strong className="text-base text-amber-600 font-mono">{form.minPassingMarks ?? Math.round(form.maxMarks * 0.33)}</strong>
             </div>
             <div>
               <span className="text-slate-500 block">Marks Format:</span>

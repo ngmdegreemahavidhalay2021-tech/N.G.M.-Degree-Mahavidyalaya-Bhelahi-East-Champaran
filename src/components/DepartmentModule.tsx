@@ -11,12 +11,17 @@ import {
   CheckCircle,
   AlertCircle,
   X,
+  Layers,
+  ArrowRightLeft,
+  UserCheck,
 } from 'lucide-react';
 import { Department, Subject, PracticalForm, Student } from '../types';
 import {
   createDepartment,
   updateDepartment,
   deleteDepartment,
+  transferSubjectDepartment,
+  createSubject,
 } from '../services/collegeService';
 
 interface DepartmentModuleProps {
@@ -43,13 +48,22 @@ export const DepartmentModule: React.FC<DepartmentModuleProps> = ({
   const [code, setCode] = useState('');
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
+  const [coordinator, setCoordinator] = useState('');
+  const [isGroup, setIsGroup] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Transfer subject state
+  const [transferringSubjectId, setTransferringSubjectId] = useState<string | null>(null);
+  const [targetDeptId, setTargetDeptId] = useState('');
+  const [transferLoading, setTransferLoading] = useState(false);
 
   const handleOpenAdd = () => {
     setCode('');
     setName('');
     setDescription('');
+    setCoordinator('');
+    setIsGroup(false);
     setError(null);
     setShowAddModal(true);
   };
@@ -59,6 +73,8 @@ export const DepartmentModule: React.FC<DepartmentModuleProps> = ({
     setCode(dept.code);
     setName(dept.name);
     setDescription(dept.description || '');
+    setCoordinator(dept.coordinator || '');
+    setIsGroup(Boolean(dept.isGroup));
     setError(null);
   };
 
@@ -78,6 +94,8 @@ export const DepartmentModule: React.FC<DepartmentModuleProps> = ({
           code: code.trim().toUpperCase(),
           name: name.trim(),
           description: description.trim(),
+          coordinator: coordinator.trim(),
+          isGroup,
         });
         setEditingDept(null);
       } else {
@@ -85,6 +103,8 @@ export const DepartmentModule: React.FC<DepartmentModuleProps> = ({
           code: code.trim().toUpperCase(),
           name: name.trim(),
           description: description.trim(),
+          coordinator: coordinator.trim(),
+          isGroup,
         });
         setShowAddModal(false);
       }
@@ -94,6 +114,20 @@ export const DepartmentModule: React.FC<DepartmentModuleProps> = ({
       setError(err.message || 'Operation failed');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleTransferSubject = async (subjectId: string, destDeptId: string) => {
+    if (!destDeptId || destDeptId === selectedDeptDetail?.id) return;
+    try {
+      setTransferLoading(true);
+      await transferSubjectDepartment(subjectId, destDeptId);
+      setTransferringSubjectId(null);
+      onRefresh();
+    } catch (err: any) {
+      alert(err.message || 'Failed to transfer subject');
+    } finally {
+      setTransferLoading(false);
     }
   };
 
@@ -108,6 +142,11 @@ export const DepartmentModule: React.FC<DepartmentModuleProps> = ({
       if (selectedDeptDetail?.id === id) {
         setSelectedDeptDetail(null);
       }
+      onRefresh();
+    } catch (err: any) {
+      alert(err.message || 'Failed to delete department');
+    }
+  };
       onRefresh();
     } catch (err: any) {
       alert(err.message || 'Failed to delete department');
@@ -171,13 +210,29 @@ export const DepartmentModule: React.FC<DepartmentModuleProps> = ({
           return (
             <div
               key={dept.id}
-              className="p-5 bg-slate-900 border border-slate-800 hover:border-blue-500/40 rounded-2xl shadow-lg transition-all flex flex-col justify-between"
+              className={`p-5 bg-slate-900 border rounded-2xl shadow-lg transition-all flex flex-col justify-between ${
+                dept.isGroup
+                  ? 'border-indigo-500/40 hover:border-indigo-400 bg-gradient-to-b from-slate-900 to-indigo-950/20'
+                  : 'border-slate-800 hover:border-blue-500/40'
+              }`}
             >
               <div>
                 <div className="flex items-center justify-between gap-2 mb-2">
-                  <span className="font-mono text-xs font-bold px-2 py-0.5 rounded bg-blue-500/10 text-blue-400 border border-blue-500/20">
-                    {dept.code}
-                  </span>
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    <span className="font-mono text-xs font-bold px-2 py-0.5 rounded bg-blue-500/10 text-blue-400 border border-blue-500/20">
+                      {dept.code}
+                    </span>
+                    {dept.isGroup ? (
+                      <span className="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-indigo-500/20 text-indigo-300 border border-indigo-500/30">
+                        <Layers className="w-3 h-3" />
+                        Parent Group
+                      </span>
+                    ) : (
+                      <span className="text-[10px] font-semibold text-slate-400 px-2 py-0.5 rounded-full bg-slate-800">
+                        Department
+                      </span>
+                    )}
+                  </div>
                   <div className="flex items-center gap-1">
                     <button
                       onClick={() => handleOpenEdit(dept)}
@@ -197,9 +252,40 @@ export const DepartmentModule: React.FC<DepartmentModuleProps> = ({
                 </div>
 
                 <h3 className="font-bold text-slate-100 text-base">{dept.name}</h3>
-                {dept.description && (
-                  <p className="text-xs text-slate-400 mt-1 line-clamp-2">{dept.description}</p>
+                {dept.coordinator && (
+                  <div className="mt-1 flex items-center gap-1.5 text-xs text-indigo-300 font-medium bg-indigo-950/40 px-2.5 py-1 rounded-lg border border-indigo-500/20">
+                    <UserCheck className="w-3.5 h-3.5 shrink-0 text-indigo-400" />
+                    <span className="truncate">In-Charge: {dept.coordinator}</span>
+                  </div>
                 )}
+                {dept.description && (
+                  <p className="text-xs text-slate-400 mt-1.5 line-clamp-2">{dept.description}</p>
+                )}
+
+                {/* Assigned Subjects Summary Preview */}
+                <div className="mt-3">
+                  <div className="flex items-center justify-between text-[11px] text-slate-400 mb-1.5 font-semibold uppercase tracking-wider">
+                    <span className="flex items-center gap-1">
+                      <BookOpen className="w-3 h-3 text-blue-400" />
+                      Assigned Subjects ({deptSubjects.length})
+                    </span>
+                  </div>
+                  <div className="flex flex-wrap gap-1 max-h-20 overflow-y-auto pr-1">
+                    {deptSubjects.length === 0 ? (
+                      <span className="text-[11px] text-slate-500 italic">No subjects assigned yet</span>
+                    ) : (
+                      deptSubjects.map((s) => (
+                        <span
+                          key={s.id}
+                          className="px-2 py-0.5 rounded text-[11px] font-mono bg-slate-950 border border-slate-800 text-slate-300"
+                          title={`${s.code}: ${s.name}`}
+                        >
+                          <strong className="text-blue-400">{s.code}</strong> {s.name.slice(0, 16)}...
+                        </span>
+                      ))
+                    )}
+                  </div>
+                </div>
 
                 {/* Metrics */}
                 <div className="grid grid-cols-3 gap-2 mt-4 pt-3 border-t border-slate-800 text-center text-xs">
@@ -223,7 +309,7 @@ export const DepartmentModule: React.FC<DepartmentModuleProps> = ({
                   onClick={() => setSelectedDeptDetail(dept)}
                   className="text-xs font-semibold text-blue-400 hover:text-blue-300 transition-colors flex items-center gap-1"
                 >
-                  <span>View Details & History</span>
+                  <span>Manage Subjects & Transfer</span>
                 </button>
               </div>
             </div>
@@ -245,9 +331,12 @@ export const DepartmentModule: React.FC<DepartmentModuleProps> = ({
               <X className="w-4 h-4" />
             </button>
 
-            <h3 className="text-lg font-bold text-slate-100 mb-4">
-              {editingDept ? 'Edit Department' : 'Add New Academic Department'}
+            <h3 className="text-lg font-bold text-slate-100 mb-2">
+              {editingDept ? 'Edit Department / Parent Group' : 'Add New Department / Parent Group'}
             </h3>
+            <p className="text-xs text-slate-400 mb-4">
+              Create single faculty departments or hybrid parent groups that manage multiple subjects under one coordinator.
+            </p>
 
             {error && (
               <div className="p-3 mb-4 rounded-lg bg-rose-500/10 border border-rose-500/30 text-rose-300 text-xs flex items-center gap-2">
@@ -257,31 +346,63 @@ export const DepartmentModule: React.FC<DepartmentModuleProps> = ({
             )}
 
             <form onSubmit={handleSave} className="space-y-4">
+              <div className="p-3 rounded-xl bg-indigo-950/30 border border-indigo-500/20">
+                <label className="flex items-start gap-2.5 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={isGroup}
+                    onChange={(e) => setIsGroup(e.target.checked)}
+                    className="mt-0.5 rounded border-slate-700 text-indigo-600 focus:ring-indigo-500"
+                  />
+                  <div>
+                    <span className="text-xs font-bold text-slate-200 block">
+                      Designate as Parent Department / Hybrid Group
+                    </span>
+                    <span className="text-[11px] text-slate-400 block mt-0.5">
+                      Enable this if one faculty/department head manages multiple subjects jointly (e.g. History & AIH&C Group).
+                    </span>
+                  </div>
+                </label>
+              </div>
+
               <div>
                 <label className="block text-xs font-semibold uppercase text-slate-300 mb-1">
-                  Department Code *
+                  Department / Group Code *
                 </label>
                 <input
                   type="text"
                   required
                   value={code}
                   onChange={(e) => setCode(e.target.value)}
-                  placeholder="e.g. CS, PHY, CHEM, BCA"
+                  placeholder="e.g. HIST-GRP, CS, PHY, BCA"
                   className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-sm text-slate-100 font-mono uppercase focus:outline-none focus:border-blue-500"
                 />
               </div>
 
               <div>
                 <label className="block text-xs font-semibold uppercase text-slate-300 mb-1">
-                  Department Name *
+                  Department / Group Name *
                 </label>
                 <input
                   type="text"
                   required
                   value={name}
                   onChange={(e) => setName(e.target.value)}
-                  placeholder="e.g. Department of Computer Science"
+                  placeholder="e.g. History & AIH&C Group, Dept. of Computer Science"
                   className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-sm text-slate-100 focus:outline-none focus:border-blue-500"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold uppercase text-slate-300 mb-1">
+                  Faculty Coordinator / Head In-Charge (Optional)
+                </label>
+                <input
+                  type="text"
+                  value={coordinator}
+                  onChange={(e) => setCoordinator(e.target.value)}
+                  placeholder="e.g. Dr. R. P. Sharma (Managing History & AIH&C)"
+                  className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-xs text-slate-100 focus:outline-none focus:border-blue-500"
                 />
               </div>
 
@@ -290,10 +411,10 @@ export const DepartmentModule: React.FC<DepartmentModuleProps> = ({
                   Description / Remarks
                 </label>
                 <textarea
-                  rows={3}
+                  rows={2}
                   value={description}
                   onChange={(e) => setDescription(e.target.value)}
-                  placeholder="Academic disciplines, laboratory facilities, etc."
+                  placeholder="Joint humanities group, laboratory facilities, faculty assignments, etc."
                   className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-xs text-slate-100 focus:outline-none focus:border-blue-500"
                 />
               </div>
@@ -322,7 +443,7 @@ export const DepartmentModule: React.FC<DepartmentModuleProps> = ({
         </div>
       )}
 
-      {/* Department Detail Modal (view department-wise subjects, forms, students) */}
+      {/* Department Detail Modal (manage department-wise subjects, transfers, forms) */}
       {selectedDeptDetail && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm overflow-y-auto">
           <div className="relative w-full max-w-2xl bg-slate-900 border border-slate-800 rounded-2xl shadow-2xl p-6 my-6 max-h-[85vh] flex flex-col">
@@ -332,9 +453,17 @@ export const DepartmentModule: React.FC<DepartmentModuleProps> = ({
                   {selectedDeptDetail.code}
                 </span>
                 <h3 className="text-lg font-bold text-slate-100">{selectedDeptDetail.name}</h3>
+                {selectedDeptDetail.isGroup && (
+                  <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded bg-indigo-500/20 text-indigo-300 border border-indigo-500/30">
+                    Parent Group
+                  </span>
+                )}
               </div>
               <button
-                onClick={() => setSelectedDeptDetail(null)}
+                onClick={() => {
+                  setSelectedDeptDetail(null);
+                  setTransferringSubjectId(null);
+                }}
                 className="text-slate-400 hover:text-slate-200"
               >
                 <X className="w-5 h-5" />
@@ -342,25 +471,98 @@ export const DepartmentModule: React.FC<DepartmentModuleProps> = ({
             </div>
 
             <div className="overflow-y-auto space-y-5 py-4">
+              {selectedDeptDetail.coordinator && (
+                <div className="p-3 rounded-xl bg-indigo-950/30 border border-indigo-500/20 text-xs text-indigo-200">
+                  <span className="font-semibold block text-indigo-400 uppercase text-[10px]">Coordinator In-Charge</span>
+                  <p className="mt-0.5 font-medium">{selectedDeptDetail.coordinator}</p>
+                </div>
+              )}
+
               {/* Subjects in this dept */}
               <div>
-                <h4 className="text-xs font-bold uppercase text-slate-400 mb-2 flex items-center gap-1.5">
-                  <BookOpen className="w-4 h-4 text-blue-400" />
-                  Assigned Subjects ({subjects.filter((s) => s.departmentId === selectedDeptDetail.id).length})
-                </h4>
-                <div className="space-y-1.5">
-                  {subjects
-                    .filter((s) => s.departmentId === selectedDeptDetail.id)
-                    .map((s) => (
-                      <div
-                        key={s.id}
-                        className="p-2.5 rounded-lg bg-slate-950 border border-slate-800 text-xs flex items-center justify-between"
-                      >
-                        <span className="font-mono font-bold text-blue-400">{s.code}</span>
-                        <span className="text-slate-200 font-medium">{s.name}</span>
-                        <span className="text-slate-500">{s.course} • {s.semester}</span>
-                      </div>
-                    ))}
+                <div className="flex items-center justify-between mb-2">
+                  <h4 className="text-xs font-bold uppercase text-slate-400 flex items-center gap-1.5">
+                    <BookOpen className="w-4 h-4 text-blue-400" />
+                    Assigned Subjects ({subjects.filter((s) => s.departmentId === selectedDeptDetail.id).length})
+                  </h4>
+                  <span className="text-[11px] text-slate-500">
+                    Each subject has its own permanent ID and curriculum mapping
+                  </span>
+                </div>
+
+                <div className="space-y-2">
+                  {subjects.filter((s) => s.departmentId === selectedDeptDetail.id).length === 0 ? (
+                    <div className="p-6 text-center rounded-xl bg-slate-950 border border-slate-800 text-xs text-slate-400">
+                      No subjects are assigned to this parent department yet. Use Subject Management or transfer subjects here.
+                    </div>
+                  ) : (
+                    subjects
+                      .filter((s) => s.departmentId === selectedDeptDetail.id)
+                      .map((s) => (
+                        <div
+                          key={s.id}
+                          className="p-3 rounded-xl bg-slate-950 border border-slate-800 text-xs flex flex-col sm:flex-row sm:items-center justify-between gap-2"
+                        >
+                          <div>
+                            <div className="flex items-center gap-2">
+                              <span className="font-mono font-bold text-blue-400">{s.code}</span>
+                              <span className="text-slate-200 font-semibold">{s.name}</span>
+                            </div>
+                            <span className="text-slate-500 text-[11px] block mt-0.5">
+                              {s.course} • {s.semester} {s.section ? `• ${s.section}` : ''} • ID: <span className="font-mono text-slate-600">{s.id}</span>
+                            </span>
+                          </div>
+
+                          <div className="flex items-center gap-2 shrink-0">
+                            {transferringSubjectId === s.id ? (
+                              <div className="flex items-center gap-2">
+                                <select
+                                  value={targetDeptId}
+                                  onChange={(e) => setTargetDeptId(e.target.value)}
+                                  className="px-2 py-1 bg-slate-900 border border-slate-700 rounded text-xs text-slate-200 focus:outline-none"
+                                >
+                                  <option value="">Choose New Parent Group...</option>
+                                  {departments
+                                    .filter((d) => d.id !== selectedDeptDetail.id)
+                                    .map((d) => (
+                                      <option key={d.id} value={d.id}>
+                                        {d.name} ({d.code}) {d.isGroup ? '• Parent Group' : ''}
+                                      </option>
+                                    ))}
+                                </select>
+                                <button
+                                  type="button"
+                                  disabled={!targetDeptId || transferLoading}
+                                  onClick={() => handleTransferSubject(s.id, targetDeptId)}
+                                  className="px-2.5 py-1 rounded bg-blue-600 hover:bg-blue-500 text-white font-semibold text-xs disabled:opacity-50"
+                                >
+                                  {transferLoading ? 'Moving...' : 'Confirm'}
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => setTransferringSubjectId(null)}
+                                  className="text-slate-400 hover:text-slate-200 text-xs"
+                                >
+                                  Cancel
+                                </button>
+                              </div>
+                            ) : (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setTransferringSubjectId(s.id);
+                                  setTargetDeptId('');
+                                }}
+                                className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-semibold bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 transition-colors"
+                              >
+                                <ArrowRightLeft className="w-3 h-3 text-indigo-400" />
+                                <span>Transfer Parent Group</span>
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      ))
+                  )}
                 </div>
               </div>
 
@@ -380,7 +582,7 @@ export const DepartmentModule: React.FC<DepartmentModuleProps> = ({
                       >
                         <div>
                           <span className="font-bold text-slate-200">{f.title}</span>
-                          <span className="text-slate-500 block text-[11px]">{f.subjectCode} • Max: {f.maxMarks}</span>
+                          <span className="text-slate-500 block text-[11px]">{f.subjectCode} • Max: {f.maxMarks} • Pass: {f.minPassingMarks}</span>
                         </div>
                         <span className="font-mono text-emerald-400 uppercase text-[10px] px-2 py-0.5 rounded bg-emerald-500/10 border border-emerald-500/20">
                           {f.status}
@@ -393,7 +595,10 @@ export const DepartmentModule: React.FC<DepartmentModuleProps> = ({
 
             <div className="pt-3 border-t border-slate-800 flex justify-end">
               <button
-                onClick={() => setSelectedDeptDetail(null)}
+                onClick={() => {
+                  setSelectedDeptDetail(null);
+                  setTransferringSubjectId(null);
+                }}
                 className="px-4 py-2 text-xs font-semibold bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-xl"
               >
                 Close
