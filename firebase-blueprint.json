@@ -162,6 +162,94 @@
         "bootstrappedAt": { "type": "string" }
       },
       "required": ["isBootstrapped"]
+    },
+    "AcademicSession": {
+      "title": "AcademicSession",
+      "description": "Four-year degree academic session (e.g. 2023-27, 2024-28)",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "sessionName": { "type": "string" },
+        "startYear": { "type": "number" },
+        "endYear": { "type": "number" },
+        "isActive": { "type": "boolean" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["id", "sessionName"]
+    },
+    "AcademicPaper": {
+      "title": "AcademicPaper",
+      "description": "Manually added examination paper under a session, semester, and subject type",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "session": { "type": "string" },
+        "semester": { "type": "string" },
+        "subjectType": { "type": "string", "enum": ["MJC", "MIC", "MDC"] },
+        "paperName": { "type": "string" },
+        "createdAt": { "type": "string" },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["id", "session", "semester", "subjectType", "paperName"]
+    },
+    "PracticalSubject": {
+      "title": "PracticalSubject",
+      "description": "Master practical subject (BOTANY, CHEMISTRY, PHYSICS, ZOOLOGY, GEOGRAPHY, PSYCHOLOGY, HOME SCIENCE)",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "code": { "type": "string" },
+        "isActive": { "type": "boolean" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["id", "name"]
+    },
+    "PaperStudent": {
+      "title": "PaperStudent",
+      "description": "Student candidate uploaded and enrolled in a specific paper and practical subject",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "paperId": { "type": "string" },
+        "session": { "type": "string" },
+        "semester": { "type": "string" },
+        "subjectType": { "type": "string", "enum": ["MJC", "MIC", "MDC"] },
+        "paperName": { "type": "string" },
+        "rollNumber": { "type": "string" },
+        "studentName": { "type": "string" },
+        "subject": { "type": "string" },
+        "fatherName": { "type": "string" },
+        "section": { "type": "string" },
+        "status": { "type": "string", "enum": ["active", "removed"] },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["id", "paperId", "rollNumber", "studentName", "subject"]
+    },
+    "ExaminerAssignment": {
+      "title": "ExaminerAssignment",
+      "description": "Examiner and incharge assignment with marks configuration and unique access token",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "session": { "type": "string" },
+        "semester": { "type": "string" },
+        "subjectType": { "type": "string", "enum": ["MJC", "MIC", "MDC"] },
+        "paperId": { "type": "string" },
+        "paperName": { "type": "string" },
+        "subjectName": { "type": "string" },
+        "inchargeName": { "type": "string" },
+        "examinerName": { "type": "string" },
+        "maxMarks": { "type": "number" },
+        "minMarks": { "type": "number" },
+        "allowDecimals": { "type": "boolean" },
+        "token": { "type": "string" },
+        "status": { "type": "string" },
+        "isLocked": { "type": "boolean" },
+        "createdAt": { "type": "string" },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["id", "paperId", "token", "maxMarks", "minMarks", "status"]
     }
   },
   "firestore": {
@@ -200,6 +288,26 @@
     "/systemSettings/{settingId}": {
       "schema": { "$ref": "#/entities/SystemSettings" },
       "description": "College and bootstrap configurations"
+    },
+    "/academicSessions/{sessionId}": {
+      "schema": { "$ref": "#/entities/AcademicSession" },
+      "description": "Academic sessions"
+    },
+    "/academicPapers/{paperId}": {
+      "schema": { "$ref": "#/entities/AcademicPaper" },
+      "description": "Academic examination papers"
+    },
+    "/practicalSubjects/{subjectId}": {
+      "schema": { "$ref": "#/entities/PracticalSubject" },
+      "description": "Practical subject master"
+    },
+    "/paperStudents/{studentId}": {
+      "schema": { "$ref": "#/entities/PaperStudent" },
+      "description": "Paper student candidates"
+    },
+    "/examinerAssignments/{assignmentId}": {
+      "schema": { "$ref": "#/entities/ExaminerAssignment" },
+      "description": "Examiner evaluation assignments"
     }
   }
 }

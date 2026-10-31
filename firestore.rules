@@ -94,6 +94,12 @@ service cloud.firestore {
       allow write: if true;
     }
 
+    // Paper Students (Students enrolled in specific manually added papers)
+    match /paperStudents/{studentId} {
+      allow get, list: if true;
+      allow write: if true;
+    }
+
     // Form Enrollments
     match /formEnrollments/{enrollmentId} {
       allow get, list: if true;

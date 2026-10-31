@@ -215,7 +215,12 @@ export default function App() {
     setShowBootstrapModal(true);
   };
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
+    try {
+      await fetch('/api/auth/logout', { method: 'POST' });
+    } catch {
+      // Ignore
+    }
     localStorage.removeItem('admin_session_token');
     setAdmin(null);
   };
@@ -297,7 +302,7 @@ export default function App() {
         {/* Content Body */}
         <main className="flex-1 p-6 space-y-6 max-w-7xl w-full mx-auto">
           {/* Bootstrap Notice Banner (if system is pending first-time admin setup) */}
-          {!bootstrapStatus?.isBootstrapped && !admin && (
+          {!loading && !bootstrapStatus?.isBootstrapped && !admin && (
             <div className="p-4 sm:p-5 rounded-2xl bg-gradient-to-r from-amber-500/15 via-blue-500/10 to-emerald-500/10 border border-amber-500/30 shadow-2xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
               <div className="flex items-start gap-3.5">
                 <div className="p-2.5 rounded-xl bg-amber-500/20 text-amber-300 border border-amber-500/30 shrink-0">

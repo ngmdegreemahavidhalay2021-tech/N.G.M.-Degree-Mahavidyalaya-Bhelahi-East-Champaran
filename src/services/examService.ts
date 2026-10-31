@@ -21,20 +21,54 @@ import {
 // ==================== AUTH & BOOTSTRAP API ====================
 
 export async function fetchBootstrapStatus(): Promise<SystemBootstrapStatus> {
+  // 1. Check server-side endpoint
   try {
     const res = await fetch('/api/bootstrap/status');
-    if (!res.ok) {
-      throw new Error('Failed to fetch system status');
+    if (res.ok) {
+      const data = await res.json();
+      if (data && typeof data.isBootstrapped === 'boolean') {
+        return data;
+      }
     }
-    return await res.json();
   } catch (err) {
-    console.warn('API error, falling back:', err);
-    return {
-      isBootstrapped: false,
-      institutionName: 'NGM Degree Mahavidyalaya',
-      adminUsername: null,
-    };
+    console.warn('API fetchBootstrapStatus network warning:', err);
   }
+
+  // 2. Resilient Firestore direct check: never falsely show unbootstrapped if Firestore already has bootstrap/admin record
+  try {
+    const snap = await getDoc(doc(db, 'systemSettings', 'bootstrap'));
+    if (snap.exists()) {
+      const d = snap.data();
+      if (d.isBootstrapped) {
+        return {
+          isBootstrapped: true,
+          institutionName: d.institutionName || 'NGM Degree Mahavidyalaya',
+          adminUsername: d.adminUsername || null,
+          bootstrappedAt: d.bootstrappedAt || null,
+        };
+      }
+    }
+
+    // Also check admins collection
+    const adminSnap = await getDocs(collection(db, 'admins'));
+    if (!adminSnap.empty) {
+      const firstAdmin = adminSnap.docs[0].data();
+      return {
+        isBootstrapped: true,
+        institutionName: firstAdmin.institutionName || 'NGM Degree Mahavidyalaya',
+        adminUsername: firstAdmin.username || null,
+        bootstrappedAt: firstAdmin.createdAt || null,
+      };
+    }
+  } catch (err) {
+    console.warn('Direct Firestore bootstrap check notice:', err);
+  }
+
+  return {
+    isBootstrapped: false,
+    institutionName: 'NGM Degree Mahavidyalaya',
+    adminUsername: null,
+  };
 }
 
 export async function loginInitialBootstrap(username: string, password: string) {
@@ -68,6 +102,22 @@ export async function completePermanentAdminSetup(payload: {
   if (!res.ok) {
     throw new Error(data.message || data.error || 'Failed to complete administrator setup');
   }
+
+  // Also verify/set in Firestore client-side for dual-guaranteed synchronization
+  try {
+    await setDoc(doc(db, 'systemSettings', 'bootstrap'), {
+      isBootstrapped: true,
+      institutionName: payload.institutionName,
+      adminUsername: payload.newUsername,
+      adminEmail: payload.recoveryEmail,
+      adminUid: data.admin?.uid || `admin_${payload.newUsername.toLowerCase()}`,
+      bootstrappedAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    }, { merge: true });
+  } catch (err) {
+    console.warn('Direct Firestore bootstrap record sync notice:', err);
+  }
+
   return data;
 }
 
