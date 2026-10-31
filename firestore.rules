@@ -52,6 +52,30 @@ service cloud.firestore {
       allow write: if true;
     }
 
+    // Academic Sessions (2023-27, 2024-28, 2025-29, 2026-30)
+    match /academicSessions/{sessionId} {
+      allow get, list: if true;
+      allow write: if true;
+    }
+
+    // Academic Papers (MJC, MIC, MDC manually created papers)
+    match /academicPapers/{paperId} {
+      allow get, list: if true;
+      allow write: if true;
+    }
+
+    // Global Practical Subject Master (BOTANY, CHEMISTRY, PHYSICS, etc.)
+    match /practicalSubjects/{subjectId} {
+      allow get, list: if true;
+      allow write: if true;
+    }
+
+    // Examiner & Incharge Assignments
+    match /examinerAssignments/{assignmentId} {
+      allow get, list: if true;
+      allow write: if true;
+    }
+
     // Subjects
     match /subjects/{subjectId} {
       allow get, list: if true;

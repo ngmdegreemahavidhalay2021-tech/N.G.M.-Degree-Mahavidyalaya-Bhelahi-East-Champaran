@@ -404,10 +404,10 @@ export default function App() {
                   className="p-4 bg-slate-900 border border-slate-800 hover:border-blue-500/40 rounded-2xl shadow-sm cursor-pointer transition-colors"
                 >
                   <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider block">
-                    Total Practical Forms
+                    Total Practical Forms & Papers
                   </span>
-                  <p className="text-2xl font-bold text-slate-100 mt-1">{forms.length}</p>
-                  <span className="text-[11px] text-blue-400 mt-0.5 block">Examination forms</span>
+                  <p className="text-2xl font-bold text-slate-100 mt-1">{stats.totalPracticalForms || forms.length}</p>
+                  <span className="text-[11px] text-blue-400 mt-0.5 block">Examination forms & papers</span>
                 </div>
 
                 <div
@@ -417,7 +417,7 @@ export default function App() {
                   <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider block">
                     Total Students
                   </span>
-                  <p className="text-2xl font-bold text-slate-100 mt-1">{students.length}</p>
+                  <p className="text-2xl font-bold text-slate-100 mt-1">{stats.totalStudents || students.length}</p>
                   <span className="text-[11px] text-blue-400 mt-0.5 block">Permanent student IDs</span>
                 </div>
 

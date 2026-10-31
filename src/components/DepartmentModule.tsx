@@ -147,11 +147,6 @@ export const DepartmentModule: React.FC<DepartmentModuleProps> = ({
       alert(err.message || 'Failed to delete department');
     }
   };
-      onRefresh();
-    } catch (err: any) {
-      alert(err.message || 'Failed to delete department');
-    }
-  };
 
   const filteredDepts = departments.filter(
     (d) =>

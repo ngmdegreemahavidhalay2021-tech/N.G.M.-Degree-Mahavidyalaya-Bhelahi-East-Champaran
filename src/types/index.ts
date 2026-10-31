@@ -1,5 +1,127 @@
 export type FormStatus = 'draft' | 'published' | 'closed';
 
+export const ALL_ACADEMIC_SESSIONS = ['2023-27', '2024-28', '2025-29', '2026-30'] as const;
+export const ALL_SEMESTERS = [
+  'Semester 1',
+  'Semester 2',
+  'Semester 3',
+  'Semester 4',
+  'Semester 5',
+  'Semester 6',
+  'Semester 7',
+  'Semester 8',
+] as const;
+export const SUBJECT_TYPES = ['MJC', 'MIC', 'MDC'] as const;
+export type SubjectType = (typeof SUBJECT_TYPES)[number];
+
+export const INITIAL_PRACTICAL_SUBJECTS = [
+  'BOTANY',
+  'CHEMISTRY',
+  'PHYSICS',
+  'ZOOLOGY',
+  'GEOGRAPHY',
+  'PSYCHOLOGY',
+  'HOME SCIENCE',
+] as const;
+
+export interface AcademicSession {
+  id: string;
+  sessionName: string; // e.g. "2023-27", "2024-28", "2025-29", "2026-30"
+  isActive: boolean;
+  createdAt: string;
+  updatedAt?: string;
+}
+
+export interface AcademicPaper {
+  id: string; // unique composite key: paper_${cleanSession}_${cleanSem}_${subjectType}_${cleanPaperName}
+  session: string; // "2023-27", "2024-28", "2025-29", "2026-30"
+  semester: string; // "Semester 1", "Semester 2", ...
+  subjectType: SubjectType; // "MJC", "MIC", "MDC"
+  paperName: string; // Manually entered, e.g. "MJC 1", "MJC 2", "MIC 1", "MDC 1"
+  description?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface PracticalSubject {
+  id: string; // psubj_botany, etc.
+  name: string; // "BOTANY", "CHEMISTRY", "PHYSICS", etc.
+  code?: string;
+  isActive: boolean;
+  createdAt: string;
+  updatedAt?: string;
+}
+
+export interface PaperStudent {
+  id: string; // Permanent unique composite ID: std_${cleanSession}_${cleanSem}_${subjectType}_${cleanPaper}_${cleanRoll}
+  paperId: string;
+  session: string;
+  semester: string;
+  subjectType: SubjectType;
+  paperName: string;
+  rollNumber: string;
+  studentName: string;
+  subject: string; // Normalized uppercase Practical Subject (e.g. "BOTANY")
+  fatherName?: string;
+  section?: string;
+  serialNo?: number | string;
+  status: 'active' | 'removed';
+  createdAt: string;
+}
+
+export type AssignmentStatus =
+  | 'Not Started'
+  | 'In Progress'
+  | 'Draft Saved'
+  | 'Pending Entries'
+  | 'Ready to Submit'
+  | 'Final Submitted';
+
+export interface ExaminerAssignment {
+  id: string;
+  session: string;
+  semester: string;
+  subjectType: SubjectType;
+  paperId: string;
+  paperName: string;
+  subjectName: string; // e.g. "BOTANY"
+  parentGroupId?: string;
+  parentGroupName?: string;
+  inchargeName: string;
+  examinerName: string;
+  maxMarks: number;
+  minMarks: number;
+  allowDecimals: boolean;
+  token: string;
+  status: AssignmentStatus;
+  isLocked: boolean;
+  submittedAt?: string;
+  submittedBy?: string;
+  reopenedAt?: string;
+  reopenedBy?: string;
+  totalStudents: number;
+  evaluatedCount: number;
+  absentCount: number;
+  pendingCount: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface AssignmentMarkRecord {
+  id: string; // mark_${assignmentId}_${studentId}
+  assignmentId: string;
+  studentId: string;
+  rollNumber: string;
+  studentName: string;
+  subject: string;
+  marksObtained: number | null;
+  isPresent: boolean;
+  resultStatus: 'PASS' | 'FAIL' | 'ABSENT' | 'PENDING';
+  remarks?: string;
+  updatedAt: string;
+  updatedBy: string;
+}
+
 export interface Department {
   id: string;
   code: string;

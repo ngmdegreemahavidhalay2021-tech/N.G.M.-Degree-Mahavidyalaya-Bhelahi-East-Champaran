@@ -22,6 +22,16 @@ import {
   MarksRecord,
   ActivityLog,
   CollegeStats,
+  AcademicSession,
+  AcademicPaper,
+  PracticalSubject,
+  PaperStudent,
+  ExaminerAssignment,
+  AssignmentMarkRecord,
+  AssignmentStatus,
+  ALL_ACADEMIC_SESSIONS,
+  INITIAL_PRACTICAL_SUBJECTS,
+  SubjectType,
 } from '../types';
 
 // ==================== ACTIVITY LOGGING ====================
@@ -614,30 +624,51 @@ export async function resetFormMarks(practicalFormId: string): Promise<void> {
 
 export async function getCollegeStats(): Promise<CollegeStats> {
   try {
-    const [depts, subjs, forms, students, marks] = await Promise.all([
-      getDocs(collection(db, 'departments')),
-      getDocs(collection(db, 'subjects')),
-      getDocs(collection(db, 'practicalForms')),
-      getDocs(collection(db, 'students')),
-      getDocs(collection(db, 'marks')),
+    const [depts, subjs, forms, students, marks, papers, assignments, pStudents] = await Promise.all([
+      getDocs(collection(db, 'departments')).catch(() => ({ size: 0, forEach: () => {} })),
+      getDocs(collection(db, 'subjects')).catch(() => ({ size: 0, forEach: () => {} })),
+      getDocs(collection(db, 'practicalForms')).catch(() => ({ size: 0, forEach: () => {} })),
+      getDocs(collection(db, 'students')).catch(() => ({ size: 0, forEach: () => {} })),
+      getDocs(collection(db, 'marks')).catch(() => ({ size: 0, forEach: () => {} })),
+      getDocs(collection(db, 'academicPapers')).catch(() => ({ size: 0, forEach: () => {} })),
+      getDocs(collection(db, 'examinerAssignments')).catch(() => ({ size: 0, forEach: () => {} })),
+      getDocs(collection(db, 'paperStudents')).catch(() => ({ size: 0, forEach: () => {} })),
     ]);
 
     let activeLinks = 0;
     let closedForms = 0;
 
-    forms.forEach((f) => {
+    forms.forEach((f: any) => {
       const d = f.data();
       if (d.isActive && d.status === 'published') activeLinks++;
       if (d.status === 'closed') closedForms++;
     });
 
+    let assignmentMarksEntered = 0;
+    let assignmentPending = 0;
+    assignments.forEach((a: any) => {
+      const d = a.data();
+      if (d.isLocked || d.status === 'Final Submitted') {
+        closedForms++;
+      } else {
+        activeLinks++;
+      }
+      assignmentMarksEntered += (d.evaluatedCount || 0) + (d.absentCount || 0);
+      assignmentPending += (d.pendingCount || 0);
+    });
+
+    const totalStudentsCount = (students.size || 0) + (pStudents.size || 0);
+    const totalFormsCount = (forms.size || 0) + (papers.size || 0);
+    const totalMarks = (marks.size || 0);
+    const pendingEntries = Math.max(0, totalStudentsCount - totalMarks);
+
     return {
-      totalDepartments: depts.size,
-      totalSubjects: subjs.size,
-      totalPracticalForms: forms.size,
-      totalStudents: students.size,
-      totalMarksSubmitted: marks.size,
-      pendingMarksEntries: Math.max(0, students.size - marks.size),
+      totalDepartments: depts.size || 0,
+      totalSubjects: subjs.size || 0,
+      totalPracticalForms: totalFormsCount,
+      totalStudents: totalStudentsCount,
+      totalMarksSubmitted: totalMarks,
+      pendingMarksEntries: pendingEntries,
       activeFormLinks: activeLinks,
       closedForms,
     };
@@ -810,3 +841,550 @@ export async function seedInitialCollegeData(): Promise<void> {
     console.error('Seeding error:', err);
   }
 }
+
+// ==================== ACADEMIC SESSIONS ====================
+
+export async function getAcademicSessions(): Promise<AcademicSession[]> {
+  try {
+    const snap = await getDocs(collection(db, 'academicSessions'));
+    if (snap.empty) {
+      // Initialize only the four required sessions: 2023-27, 2024-28, 2025-29, 2026-30
+      const batch = writeBatch(db);
+      const initialList: AcademicSession[] = ALL_ACADEMIC_SESSIONS.map((sess) => ({
+        id: `sess_${sess.replace(/[^a-zA-Z0-9]/g, '_')}`,
+        sessionName: sess,
+        isActive: true,
+        createdAt: new Date().toISOString(),
+      }));
+
+      initialList.forEach((s) => {
+        batch.set(doc(db, 'academicSessions', s.id), s);
+      });
+      await batch.commit();
+      return initialList;
+    }
+
+    const list: AcademicSession[] = [];
+    snap.forEach((d) => list.push({ id: d.id, ...d.data() } as AcademicSession));
+    return list.sort((a, b) => a.sessionName.localeCompare(b.sessionName));
+  } catch (err) {
+    handleFirestoreError(err, OperationType.LIST, 'academicSessions');
+  }
+}
+
+export async function createAcademicSession(sessionName: string): Promise<AcademicSession> {
+  const clean = sessionName.trim();
+  const id = `sess_${clean.replace(/[^a-zA-Z0-9]/g, '_')}`;
+  const sess: AcademicSession = {
+    id,
+    sessionName: clean,
+    isActive: true,
+    createdAt: new Date().toISOString(),
+  };
+
+  try {
+    await setDoc(doc(db, 'academicSessions', id), sess);
+    await logActivity('SESSION_CREATED', `Added academic session ${clean}`, 'AcademicSession', id);
+    return sess;
+  } catch (err) {
+    handleFirestoreError(err, OperationType.CREATE, 'academicSessions');
+  }
+}
+
+export async function updateAcademicSession(id: string, updates: Partial<AcademicSession>): Promise<void> {
+  try {
+    await updateDoc(doc(db, 'academicSessions', id), {
+      ...updates,
+      updatedAt: new Date().toISOString(),
+    });
+    await logActivity('SESSION_UPDATED', `Updated session ${id}`, 'AcademicSession', id);
+  } catch (err) {
+    handleFirestoreError(err, OperationType.UPDATE, `academicSessions/${id}`);
+  }
+}
+
+export async function deleteAcademicSession(id: string): Promise<void> {
+  try {
+    await deleteDoc(doc(db, 'academicSessions', id));
+    await logActivity('SESSION_DELETED', `Deleted academic session ${id}`, 'AcademicSession', id);
+  } catch (err) {
+    handleFirestoreError(err, OperationType.DELETE, `academicSessions/${id}`);
+  }
+}
+
+// ==================== PRACTICAL SUBJECTS MASTER ====================
+
+export async function getPracticalSubjects(): Promise<PracticalSubject[]> {
+  try {
+    const snap = await getDocs(collection(db, 'practicalSubjects'));
+    if (snap.empty) {
+      // Initialize only the seven required practical subjects:
+      // BOTANY, CHEMISTRY, PHYSICS, ZOOLOGY, GEOGRAPHY, PSYCHOLOGY, HOME SCIENCE
+      const batch = writeBatch(db);
+      const initial: PracticalSubject[] = INITIAL_PRACTICAL_SUBJECTS.map((name) => ({
+        id: `psubj_${name.toLowerCase().replace(/[^a-z0-9]/g, '_')}`,
+        name,
+        code: name.slice(0, 4).toUpperCase(),
+        isActive: true,
+        createdAt: new Date().toISOString(),
+      }));
+
+      initial.forEach((s) => {
+        batch.set(doc(db, 'practicalSubjects', s.id), s);
+      });
+      await batch.commit();
+      return initial;
+    }
+
+    const list: PracticalSubject[] = [];
+    snap.forEach((d) => list.push({ id: d.id, ...d.data() } as PracticalSubject));
+    return list.sort((a, b) => a.name.localeCompare(b.name));
+  } catch (err) {
+    handleFirestoreError(err, OperationType.LIST, 'practicalSubjects');
+  }
+}
+
+export async function createPracticalSubject(name: string, code?: string): Promise<PracticalSubject> {
+  const cleanName = name.trim().toUpperCase();
+  const id = `psubj_${cleanName.toLowerCase().replace(/[^a-z0-9]/g, '_')}`;
+  const subj: PracticalSubject = {
+    id,
+    name: cleanName,
+    code: (code || cleanName.slice(0, 4)).trim().toUpperCase(),
+    isActive: true,
+    createdAt: new Date().toISOString(),
+  };
+
+  try {
+    await setDoc(doc(db, 'practicalSubjects', id), subj);
+    await logActivity('PRACTICAL_SUBJECT_CREATED', `Added practical subject ${cleanName}`, 'PracticalSubject', id);
+    return subj;
+  } catch (err) {
+    handleFirestoreError(err, OperationType.CREATE, 'practicalSubjects');
+  }
+}
+
+export async function updatePracticalSubject(id: string, updates: Partial<PracticalSubject>): Promise<void> {
+  try {
+    const finalUpdates: any = { ...updates, updatedAt: new Date().toISOString() };
+    if (updates.name) {
+      finalUpdates.name = updates.name.trim().toUpperCase();
+    }
+    await updateDoc(doc(db, 'practicalSubjects', id), finalUpdates);
+    await logActivity('PRACTICAL_SUBJECT_UPDATED', `Updated practical subject ${id}`, 'PracticalSubject', id);
+  } catch (err) {
+    handleFirestoreError(err, OperationType.UPDATE, `practicalSubjects/${id}`);
+  }
+}
+
+export async function deletePracticalSubject(id: string): Promise<void> {
+  try {
+    await deleteDoc(doc(db, 'practicalSubjects', id));
+    await logActivity('PRACTICAL_SUBJECT_DELETED', `Deleted practical subject ${id}`, 'PracticalSubject', id);
+  } catch (err) {
+    handleFirestoreError(err, OperationType.DELETE, `practicalSubjects/${id}`);
+  }
+}
+
+export function matchPracticalSubject(rawName: string, availableSubjects: PracticalSubject[]): PracticalSubject | null {
+  if (!rawName) return null;
+  const normalized = rawName.trim().toUpperCase();
+  return availableSubjects.find((s) => s.name.trim().toUpperCase() === normalized) || null;
+}
+
+// ==================== ACADEMIC PAPERS (MJC, MIC, MDC) ====================
+
+export async function getAcademicPapers(
+  session?: string,
+  semester?: string,
+  subjectType?: SubjectType
+): Promise<AcademicPaper[]> {
+  try {
+    const colRef = collection(db, 'academicPapers');
+    const constraints: any[] = [];
+    if (session) constraints.push(where('session', '==', session));
+    if (semester) constraints.push(where('semester', '==', semester));
+    if (subjectType) constraints.push(where('subjectType', '==', subjectType));
+
+    const q = constraints.length > 0 ? query(colRef, ...constraints) : colRef;
+    const snap = await getDocs(q);
+    const list: AcademicPaper[] = [];
+    snap.forEach((d) => list.push({ id: d.id, ...d.data() } as AcademicPaper));
+    return list.sort((a, b) => a.paperName.localeCompare(b.paperName, undefined, { numeric: true }));
+  } catch (err) {
+    handleFirestoreError(err, OperationType.LIST, 'academicPapers');
+  }
+}
+
+export async function createAcademicPaper(data: {
+  session: string;
+  semester: string;
+  subjectType: SubjectType;
+  paperName: string;
+  description?: string;
+}): Promise<AcademicPaper> {
+  const cleanSession = data.session.trim().replace(/[^a-zA-Z0-9]/g, '_');
+  const cleanSem = data.semester.trim().replace(/[^a-zA-Z0-9]/g, '_');
+  const cleanName = data.paperName.trim().toUpperCase();
+  const cleanPaperKey = cleanName.replace(/[^A-Z0-9]/g, '_');
+
+  const id = `paper_${cleanSession}_${cleanSem}_${data.subjectType}_${cleanPaperKey}`;
+
+  const paper: AcademicPaper = {
+    id,
+    session: data.session.trim(),
+    semester: data.semester.trim(),
+    subjectType: data.subjectType,
+    paperName: cleanName,
+    description: data.description || '',
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  };
+
+  try {
+    await setDoc(doc(db, 'academicPapers', id), paper);
+    await logActivity(
+      'PAPER_CREATED',
+      `Created ${data.subjectType} paper "${cleanName}" for ${data.session} (${data.semester})`,
+      'AcademicPaper',
+      id
+    );
+    return paper;
+  } catch (err) {
+    handleFirestoreError(err, OperationType.CREATE, 'academicPapers');
+  }
+}
+
+export async function updateAcademicPaper(id: string, updates: Partial<AcademicPaper>): Promise<void> {
+  try {
+    const finalUpdates: any = { ...updates, updatedAt: new Date().toISOString() };
+    if (updates.paperName) {
+      finalUpdates.paperName = updates.paperName.trim().toUpperCase();
+    }
+    await updateDoc(doc(db, 'academicPapers', id), finalUpdates);
+    await logActivity('PAPER_UPDATED', `Updated paper ${id}`, 'AcademicPaper', id);
+  } catch (err) {
+    handleFirestoreError(err, OperationType.UPDATE, `academicPapers/${id}`);
+  }
+}
+
+export async function deleteAcademicPaper(id: string): Promise<void> {
+  try {
+    await deleteDoc(doc(db, 'academicPapers', id));
+    await logActivity('PAPER_DELETED', `Deleted paper ${id}`, 'AcademicPaper', id);
+  } catch (err) {
+    handleFirestoreError(err, OperationType.DELETE, `academicPapers/${id}`);
+  }
+}
+
+// ==================== PAPER STUDENTS (EXCEL UPLOAD PER PAPER) ====================
+
+export function generatePermanentPaperStudentId(
+  session: string,
+  semester: string,
+  subjectType: string,
+  paperName: string,
+  rollNumber: string
+): string {
+  const cSess = session.replace(/[^a-zA-Z0-9]/g, '_');
+  const cSem = semester.replace(/[^a-zA-Z0-9]/g, '_');
+  const cType = subjectType.trim().toUpperCase();
+  const cPaper = paperName.trim().toUpperCase().replace(/[^A-Z0-9]/g, '_');
+  const cRoll = rollNumber.trim().toUpperCase().replace(/[^A-Z0-9]/g, '_');
+  return `std_${cSess}_${cSem}_${cType}_${cPaper}_${cRoll}`;
+}
+
+export async function getPaperStudents(paperId?: string): Promise<PaperStudent[]> {
+  try {
+    const colRef = collection(db, 'paperStudents');
+    const q = paperId ? query(colRef, where('paperId', '==', paperId)) : colRef;
+    const snap = await getDocs(q);
+    const list: PaperStudent[] = [];
+    snap.forEach((d) => list.push({ id: d.id, ...d.data() } as PaperStudent));
+    return list.sort((a, b) => a.rollNumber.localeCompare(b.rollNumber, undefined, { numeric: true }));
+  } catch (err) {
+    handleFirestoreError(err, OperationType.LIST, 'paperStudents');
+  }
+}
+
+export async function batchImportPaperStudents(
+  studentsList: Array<Omit<PaperStudent, 'id' | 'createdAt'>>
+): Promise<{ added: number; updated: number; groupedBySubject: Record<string, number> }> {
+  try {
+    const batch = writeBatch(db);
+    let count = 0;
+    const groupedBySubject: Record<string, number> = {};
+
+    for (const data of studentsList) {
+      const cleanRoll = data.rollNumber.trim().toUpperCase();
+      const cleanSubject = data.subject.trim().toUpperCase();
+      const id = generatePermanentPaperStudentId(
+        data.session,
+        data.semester,
+        data.subjectType,
+        data.paperName,
+        cleanRoll
+      );
+
+      const record: PaperStudent = {
+        ...data,
+        id,
+        rollNumber: cleanRoll,
+        studentName: data.studentName.trim(),
+        subject: cleanSubject,
+        fatherName: data.fatherName?.trim() || '',
+        status: 'active',
+        createdAt: new Date().toISOString(),
+      };
+
+      batch.set(doc(db, 'paperStudents', id), record, { merge: true });
+      count++;
+      groupedBySubject[cleanSubject] = (groupedBySubject[cleanSubject] || 0) + 1;
+    }
+
+    await batch.commit();
+    await logActivity(
+      'PAPER_STUDENTS_IMPORTED',
+      `Imported ${count} student records across ${Object.keys(groupedBySubject).length} practical subjects for paper`,
+      'PaperStudent'
+    );
+
+    return { added: count, updated: 0, groupedBySubject };
+  } catch (err) {
+    handleFirestoreError(err, OperationType.WRITE, 'paperStudents/batch');
+  }
+}
+
+export async function deletePaperStudent(id: string): Promise<void> {
+  try {
+    await deleteDoc(doc(db, 'paperStudents', id));
+    await logActivity('PAPER_STUDENT_DELETED', `Deleted student candidate ${id}`, 'PaperStudent', id);
+  } catch (err) {
+    handleFirestoreError(err, OperationType.DELETE, `paperStudents/${id}`);
+  }
+}
+
+// ==================== EXAMINER ASSIGNMENTS ====================
+
+export function generateSecureExaminerToken(): string {
+  const rand = Math.random().toString(36).substring(2, 12);
+  const time = Date.now().toString(36);
+  return `tok_${time}_${rand}`;
+}
+
+export async function getExaminerAssignments(filters?: {
+  session?: string;
+  semester?: string;
+  subjectType?: SubjectType | 'ALL';
+  paperId?: string;
+  subjectName?: string;
+}): Promise<ExaminerAssignment[]> {
+  try {
+    const colRef = collection(db, 'examinerAssignments');
+    const constraints: any[] = [];
+    if (filters?.session && filters.session !== 'ALL') constraints.push(where('session', '==', filters.session));
+    if (filters?.semester && filters.semester !== 'ALL') constraints.push(where('semester', '==', filters.semester));
+    if (filters?.subjectType && filters.subjectType !== 'ALL') constraints.push(where('subjectType', '==', filters.subjectType));
+    if (filters?.paperId && filters.paperId !== 'ALL') constraints.push(where('paperId', '==', filters.paperId));
+    if (filters?.subjectName && filters.subjectName !== 'ALL') constraints.push(where('subjectName', '==', filters.subjectName));
+
+    const q = constraints.length > 0 ? query(colRef, ...constraints) : colRef;
+    const snap = await getDocs(q);
+    const list: ExaminerAssignment[] = [];
+    snap.forEach((d) => list.push({ id: d.id, ...d.data() } as ExaminerAssignment));
+    return list.sort((a, b) => a.subjectName.localeCompare(b.subjectName));
+  } catch (err) {
+    handleFirestoreError(err, OperationType.LIST, 'examinerAssignments');
+  }
+}
+
+export async function getExaminerAssignmentByToken(token: string): Promise<ExaminerAssignment | null> {
+  try {
+    const q = query(collection(db, 'examinerAssignments'), where('token', '==', token.trim()), limit(1));
+    const snap = await getDocs(q);
+    if (snap.empty) return null;
+    const docData = snap.docs[0];
+    return { id: docData.id, ...docData.data() } as ExaminerAssignment;
+  } catch (err) {
+    console.warn('Error fetching assignment by token:', err);
+    return null;
+  }
+}
+
+export async function saveExaminerAssignment(
+  data: Omit<ExaminerAssignment, 'id' | 'createdAt' | 'updatedAt' | 'token'> & {
+    id?: string;
+    token?: string;
+  }
+): Promise<ExaminerAssignment> {
+  const isNew = !data.id;
+  const id = data.id || `asgn_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+  const now = new Date().toISOString();
+  const token = data.token || generateSecureExaminerToken();
+
+  const assignment: ExaminerAssignment = {
+    ...data,
+    id,
+    token,
+    status: data.status || 'Not Started',
+    isLocked: data.isLocked || false,
+    createdAt: now,
+    updatedAt: now,
+  };
+
+  try {
+    await setDoc(doc(db, 'examinerAssignments', id), assignment, { merge: true });
+    await logActivity(
+      isNew ? 'EXAMINER_ASSIGNMENT_CREATED' : 'EXAMINER_ASSIGNMENT_UPDATED',
+      `Configured assignment for ${assignment.paperName} (${assignment.subjectName}) - Examiner: ${assignment.examinerName}`,
+      'ExaminerAssignment',
+      id
+    );
+    return assignment;
+  } catch (err) {
+    handleFirestoreError(err, OperationType.WRITE, `examinerAssignments/${id}`);
+  }
+}
+
+export async function deleteExaminerAssignment(id: string): Promise<void> {
+  try {
+    await deleteDoc(doc(db, 'examinerAssignments', id));
+    await logActivity('EXAMINER_ASSIGNMENT_DELETED', `Deleted assignment ${id}`, 'ExaminerAssignment', id);
+  } catch (err) {
+    handleFirestoreError(err, OperationType.DELETE, `examinerAssignments/${id}`);
+  }
+}
+
+export async function regenerateAssignmentToken(assignmentId: string): Promise<string> {
+  const newToken = generateSecureExaminerToken();
+  try {
+    await updateDoc(doc(db, 'examinerAssignments', assignmentId), {
+      token: newToken,
+      updatedAt: new Date().toISOString(),
+    });
+    await logActivity('ASSIGNMENT_TOKEN_REGENERATED', `Regenerated token for assignment ${assignmentId}`, 'ExaminerAssignment', assignmentId);
+    return newToken;
+  } catch (err) {
+    handleFirestoreError(err, OperationType.UPDATE, `examinerAssignments/${assignmentId}`);
+  }
+}
+
+export async function reopenExaminerAssignment(assignmentId: string, reopenedBy = 'Administrator'): Promise<void> {
+  try {
+    await updateDoc(doc(db, 'examinerAssignments', assignmentId), {
+      isLocked: false,
+      status: 'In Progress',
+      reopenedAt: new Date().toISOString(),
+      reopenedBy,
+      updatedAt: new Date().toISOString(),
+    });
+    await logActivity('ASSIGNMENT_REOPENED', `Admin reopened assignment ${assignmentId} for marks revision`, 'ExaminerAssignment', assignmentId, reopenedBy);
+  } catch (err) {
+    handleFirestoreError(err, OperationType.UPDATE, `examinerAssignments/${assignmentId}`);
+  }
+}
+
+export async function finalSubmitExaminerAssignment(assignmentId: string, examinerName: string): Promise<void> {
+  try {
+    await updateDoc(doc(db, 'examinerAssignments', assignmentId), {
+      isLocked: true,
+      status: 'Final Submitted',
+      submittedAt: new Date().toISOString(),
+      submittedBy: examinerName,
+      updatedAt: new Date().toISOString(),
+    });
+    await logActivity('ASSIGNMENT_FINAL_SUBMITTED', `Examiner ${examinerName} finalized and locked marks submission for ${assignmentId}`, 'ExaminerAssignment', assignmentId, examinerName);
+  } catch (err) {
+    handleFirestoreError(err, OperationType.UPDATE, `examinerAssignments/${assignmentId}`);
+  }
+}
+
+// ==================== ASSIGNMENT MARKS (CLOUD DRAFTS & AUTO-SAVE) ====================
+
+export async function getAssignmentMarks(assignmentId: string): Promise<AssignmentMarkRecord[]> {
+  try {
+    const q = query(collection(db, 'marks'), where('assignmentId', '==', assignmentId));
+    const snap = await getDocs(q);
+    const list: AssignmentMarkRecord[] = [];
+    snap.forEach((d) => list.push({ id: d.id, ...d.data() } as AssignmentMarkRecord));
+    return list;
+  } catch (err) {
+    handleFirestoreError(err, OperationType.LIST, 'marks');
+  }
+}
+
+export async function saveAssignmentMarks(
+  assignment: ExaminerAssignment,
+  records: Array<{
+    studentId: string;
+    rollNumber: string;
+    studentName: string;
+    subject: string;
+    marksObtained: number | null;
+    isPresent: boolean;
+    remarks?: string;
+  }>,
+  updatedBy = 'Examiner'
+): Promise<void> {
+  try {
+    const batch = writeBatch(db);
+    const now = new Date().toISOString();
+
+    let evaluatedCount = 0;
+    let absentCount = 0;
+    let pendingCount = 0;
+
+    records.forEach((r) => {
+      const id = `mark_${assignment.id}_${r.studentId}`;
+      const resStatus = calculateResultStatus(r.marksObtained, r.isPresent, assignment.minMarks);
+
+      if (!r.isPresent) absentCount++;
+      else if (r.marksObtained !== null && r.marksObtained !== undefined) evaluatedCount++;
+      else pendingCount++;
+
+      const markData: AssignmentMarkRecord = {
+        id,
+        assignmentId: assignment.id,
+        studentId: r.studentId,
+        rollNumber: r.rollNumber,
+        studentName: r.studentName,
+        subject: r.subject,
+        marksObtained: r.isPresent ? r.marksObtained : null,
+        isPresent: r.isPresent,
+        remarks: r.remarks || '',
+        resultStatus: resStatus,
+        updatedAt: now,
+        updatedBy,
+      };
+
+      batch.set(doc(db, 'marks', id), markData, { merge: true });
+    });
+
+    // Update assignment stats & progress status atomically
+    let newStatus: AssignmentStatus = 'Draft Saved';
+    if (evaluatedCount + absentCount === 0) newStatus = 'Not Started';
+    else if (pendingCount > 0) newStatus = 'In Progress';
+    else if (pendingCount === 0 && records.length > 0) newStatus = 'Ready to Submit';
+
+    batch.update(doc(db, 'examinerAssignments', assignment.id), {
+      totalStudents: records.length,
+      evaluatedCount,
+      absentCount,
+      pendingCount,
+      status: assignment.isLocked ? 'Final Submitted' : newStatus,
+      updatedAt: now,
+    });
+
+    await batch.commit();
+    await logActivity(
+      'ASSIGNMENT_MARKS_SAVED',
+      `Auto-saved marks for ${records.length} candidates in assignment ${assignment.id}`,
+      'AssignmentMarkRecord',
+      assignment.id,
+      updatedBy
+    );
+  } catch (err) {
+    handleFirestoreError(err, OperationType.WRITE, 'marks/assignment');
+  }
+}
+

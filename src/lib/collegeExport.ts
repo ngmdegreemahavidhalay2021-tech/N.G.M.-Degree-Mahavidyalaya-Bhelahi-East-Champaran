@@ -1,6 +1,15 @@
 import * as XLSX from 'xlsx';
 import JSZip from 'jszip';
-import { PracticalForm, FormEnrollment, MarksRecord, Department, Subject } from '../types';
+import {
+  PracticalForm,
+  FormEnrollment,
+  MarksRecord,
+  Department,
+  Subject,
+  ExaminerAssignment,
+  AssignmentMarkRecord,
+  PaperStudent,
+} from '../types';
 
 export interface ExportFilterOptions {
   departmentId?: string;
@@ -373,3 +382,146 @@ export function exportSingleFormExcel(
   XLSX.utils.book_append_sheet(wb, ws, (form.subjectCode || 'Marksheet').slice(0, 31));
   XLSX.writeFile(wb, `${form.subjectCode}_Practical_Marks_${new Date().toISOString().slice(0, 10)}.xlsx`);
 }
+
+export function exportExaminerAssignmentMarksheetExcel(
+  assignment: ExaminerAssignment,
+  students: PaperStudent[],
+  marks: AssignmentMarkRecord[],
+  institutionName = 'NGM Degree Mahavidyalaya'
+) {
+  const marksMap = new Map(marks.map((m) => [m.studentId, m]));
+  const headers = [
+    'SN.',
+    'Roll Number',
+    'Candidate Name',
+    "Father's Name",
+    'Practical Subject',
+    'Session',
+    'Semester',
+    'Subject Type',
+    'Paper Name',
+    'Attendance',
+    `Max Marks (${assignment.maxMarks})`,
+    `Min Pass Marks (${assignment.minMarks})`,
+    'Obtained Marks',
+    'Result Status',
+    'Remarks',
+  ];
+
+  let presentCount = 0;
+  let absentCount = 0;
+  let passedCount = 0;
+  let failedCount = 0;
+
+  const rows = students.map((std, idx) => {
+    const markRec = marksMap.get(std.id);
+    const isPresent = markRec ? markRec.isPresent : true;
+    const hasMarks = markRec && markRec.marksObtained !== null && markRec.marksObtained !== undefined;
+    const score = markRec ? (isPresent ? (hasMarks ? markRec.marksObtained! : '') : 'ABSENT') : '';
+    const status = markRec ? (isPresent ? 'PRESENT' : 'ABSENT') : 'PENDING';
+
+    let resultStatus = 'PENDING';
+    if (markRec) {
+      if (!isPresent) {
+        resultStatus = 'ABSENT';
+        absentCount++;
+      } else if (hasMarks) {
+        presentCount++;
+        if (Number(markRec.marksObtained) >= assignment.minMarks) {
+          resultStatus = 'PASS';
+          passedCount++;
+        } else {
+          resultStatus = 'FAIL';
+          failedCount++;
+        }
+      }
+    }
+
+    return [
+      idx + 1,
+      std.rollNumber,
+      std.studentName,
+      std.fatherName || '-',
+      std.subject,
+      assignment.session,
+      assignment.semester,
+      assignment.subjectType,
+      assignment.paperName,
+      status,
+      assignment.maxMarks,
+      assignment.minMarks,
+      score,
+      resultStatus,
+      markRec?.remarks || '',
+    ];
+  });
+
+  const metadataRows = [
+    [institutionName.toUpperCase()],
+    ['PRACTICAL EXAMINATION OFFICIAL MARKSHEET'],
+    [],
+    [
+      `Academic Session: ${assignment.session}`,
+      `Semester: ${assignment.semester}`,
+      `Subject Type: ${assignment.subjectType}`,
+      `Paper Name: ${assignment.paperName}`,
+      `Practical Subject: ${assignment.subjectName}`,
+    ],
+    [
+      `Internal Incharge: ${assignment.inchargeName || 'Not Assigned'}`,
+      `External Examiner: ${assignment.examinerName || 'Not Assigned'}`,
+      `Max Marks: ${assignment.maxMarks}`,
+      `Min Pass Marks: ${assignment.minMarks}`,
+      `Status: ${assignment.status}`,
+    ],
+    [],
+  ];
+
+  const summaryRows = [
+    [],
+    ['--- SUMMARY STATISTICS ---'],
+    ['Total Enrolled Candidates', students.length],
+    ['Candidates Evaluated (Present)', presentCount],
+    ['Absent Candidates', absentCount],
+    ['Passed Candidates', passedCount],
+    ['Failed Candidates', failedCount],
+    [],
+    ['INTERNAL INCHARGE SIGNATURE: _______________________', '', 'EXTERNAL EXAMINER SIGNATURE: _______________________', '', 'PRINCIPAL / CONTROLLER OF EXAMS: _______________________'],
+  ];
+
+  const ws = XLSX.utils.aoa_to_sheet([
+    ...metadataRows,
+    headers,
+    ...rows,
+    ...summaryRows,
+  ]);
+
+  ws['!cols'] = [
+    { wch: 6 },
+    { wch: 18 },
+    { wch: 26 },
+    { wch: 26 },
+    { wch: 18 },
+    { wch: 12 },
+    { wch: 14 },
+    { wch: 14 },
+    { wch: 16 },
+    { wch: 14 },
+    { wch: 14 },
+    { wch: 14 },
+    { wch: 16 },
+    { wch: 14 },
+    { wch: 22 },
+  ];
+
+  const wb = XLSX.utils.book_new();
+  const safeSheetName = `${assignment.paperName}_${assignment.subjectName}`.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 31);
+  XLSX.utils.book_append_sheet(wb, ws, safeSheetName);
+
+  const cleanFile = `${assignment.session}_${assignment.semester}_${assignment.subjectType}_${assignment.paperName}_${assignment.subjectName}_Marks_${new Date().toISOString().slice(0, 10)}.xlsx`
+    .replace(/\s+/g, '_')
+    .replace(/[^a-zA-Z0-9_.-]/g, '');
+
+  XLSX.writeFile(wb, cleanFile);
+}
+
