@@ -30,8 +30,12 @@ import {
   AssignmentMarkRecord,
   AssignmentStatus,
   ALL_ACADEMIC_SESSIONS,
+  ALL_SEMESTERS,
   INITIAL_PRACTICAL_SUBJECTS,
   SubjectType,
+  AcademicSemester,
+  AppearanceSettings,
+  AdminProfile,
 } from '../types';
 
 // ==================== ACTIVITY LOGGING ====================
@@ -912,6 +916,84 @@ export async function deleteAcademicSession(id: string): Promise<void> {
   }
 }
 
+// ==================== ACADEMIC SEMESTERS ====================
+
+export async function getAcademicSemesters(): Promise<AcademicSemester[]> {
+  try {
+    const snap = await getDocs(collection(db, 'academicSemesters'));
+    if (snap.empty) {
+      // Initialize the eight standard semesters: Semester 1 through Semester 8
+      const batch = writeBatch(db);
+      const initialList: AcademicSemester[] = ALL_SEMESTERS.map((sem, idx) => ({
+        id: `sem_${idx + 1}`,
+        semesterName: sem,
+        order: idx + 1,
+        isActive: true,
+        createdAt: new Date().toISOString(),
+      }));
+
+      initialList.forEach((s) => {
+        batch.set(doc(db, 'academicSemesters', s.id), s);
+      });
+      await batch.commit();
+      return initialList;
+    }
+
+    const list: AcademicSemester[] = [];
+    snap.forEach((d) => list.push({ id: d.id, ...d.data() } as AcademicSemester));
+    return list.sort((a, b) => (a.order ?? 99) - (b.order ?? 99));
+  } catch (err) {
+    handleFirestoreError(err, OperationType.LIST, 'academicSemesters');
+  }
+}
+
+export async function createAcademicSemester(
+  semesterName: string,
+  order?: number
+): Promise<AcademicSemester> {
+  const clean = semesterName.trim();
+  const id = `sem_${clean.toLowerCase().replace(/[^a-z0-9]/g, '_')}_${Date.now()}`;
+  const sem: AcademicSemester = {
+    id,
+    semesterName: clean,
+    order: order ?? 1,
+    isActive: true,
+    createdAt: new Date().toISOString(),
+  };
+
+  try {
+    await setDoc(doc(db, 'academicSemesters', id), sem);
+    await logActivity('SEMESTER_CREATED', `Added academic semester ${clean}`, 'AcademicSemester', id);
+    return sem;
+  } catch (err) {
+    handleFirestoreError(err, OperationType.CREATE, 'academicSemesters');
+  }
+}
+
+export async function updateAcademicSemester(
+  id: string,
+  updates: Partial<AcademicSemester>
+): Promise<void> {
+  try {
+    await updateDoc(doc(db, 'academicSemesters', id), {
+      ...updates,
+      updatedAt: new Date().toISOString(),
+    });
+    await logActivity('SEMESTER_UPDATED', `Updated semester ${id}`, 'AcademicSemester', id);
+  } catch (err) {
+    handleFirestoreError(err, OperationType.UPDATE, `academicSemesters/${id}`);
+  }
+}
+
+export async function deleteAcademicSemester(id: string): Promise<void> {
+  try {
+    await deleteDoc(doc(db, 'academicSemesters', id));
+    await logActivity('SEMESTER_DELETED', `Deleted academic semester ${id}`, 'AcademicSemester', id);
+  } catch (err) {
+    handleFirestoreError(err, OperationType.DELETE, `academicSemesters/${id}`);
+  }
+}
+
 // ==================== PRACTICAL SUBJECTS MASTER ====================
 
 export async function getPracticalSubjects(): Promise<PracticalSubject[]> {
@@ -1385,6 +1467,121 @@ export async function saveAssignmentMarks(
     );
   } catch (err) {
     handleFirestoreError(err, OperationType.WRITE, 'marks/assignment');
+  }
+}
+
+// ==================== SYSTEM APPEARANCE SETTINGS ====================
+
+const DEFAULT_APPEARANCE: AppearanceSettings = {
+  appearanceMode: 'dark',
+  selectedFont: 'Inter',
+  selectedTheme: 'blue',
+};
+
+export async function getAppearanceSettings(): Promise<AppearanceSettings> {
+  try {
+    const docRef = doc(db, 'systemSettings', 'appearance');
+    const snap = await getDoc(docRef);
+    if (snap.exists()) {
+      return {
+        ...DEFAULT_APPEARANCE,
+        ...snap.data(),
+      } as AppearanceSettings;
+    }
+  } catch (err) {
+    console.warn('Could not load appearance settings from Firestore:', err);
+  }
+  return DEFAULT_APPEARANCE;
+}
+
+export async function saveAppearanceSettings(
+  settings: Partial<AppearanceSettings>,
+  updatedBy = 'Administrator'
+): Promise<AppearanceSettings> {
+  const merged: AppearanceSettings = {
+    ...DEFAULT_APPEARANCE,
+    ...settings,
+    updatedAt: new Date().toISOString(),
+    updatedBy,
+  };
+
+  try {
+    await setDoc(doc(db, 'systemSettings', 'appearance'), merged, { merge: true });
+    await logActivity(
+      'APPEARANCE_UPDATED',
+      `Appearance customized: Mode=${merged.appearanceMode}, Font=${merged.selectedFont}, Theme=${merged.selectedTheme}`,
+      'AppearanceSettings',
+      'appearance',
+      updatedBy
+    );
+  } catch (err) {
+    console.warn('Could not save appearance settings to Firestore:', err);
+  }
+
+  return merged;
+}
+
+// ==================== ADMIN PROFILE & PASSWORD ====================
+
+export async function fetchAdminProfile(token: string): Promise<AdminProfile | null> {
+  try {
+    const res = await fetch('/api/admin/profile', {
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    });
+    if (!res.ok) return null;
+    const data = await res.json();
+    return data.profile || null;
+  } catch (err) {
+    console.error('fetchAdminProfile error:', err);
+    return null;
+  }
+}
+
+export async function updateAdminProfile(
+  updates: Partial<AdminProfile>,
+  token: string
+): Promise<{ success: boolean; profile?: AdminProfile; error?: string }> {
+  try {
+    const res = await fetch('/api/admin/profile', {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify(updates),
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      return { success: false, error: data.error || data.message || 'Failed to update profile' };
+    }
+    return { success: true, profile: data.profile };
+  } catch (err: any) {
+    return { success: false, error: err.message || 'Network error' };
+  }
+}
+
+export async function changeAdminPassword(
+  payload: { currentPassword: string; newPassword: string; confirmPassword: string },
+  token: string
+): Promise<{ success: boolean; message?: string; error?: string }> {
+  try {
+    const res = await fetch('/api/admin/change-password', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify(payload),
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      return { success: false, error: data.error || data.message || 'Failed to change password' };
+    }
+    return { success: true, message: data.message };
+  } catch (err: any) {
+    return { success: false, error: err.message || 'Network error' };
   }
 }
 

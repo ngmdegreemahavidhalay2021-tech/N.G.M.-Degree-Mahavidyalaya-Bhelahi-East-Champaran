@@ -58,6 +58,12 @@ service cloud.firestore {
       allow write: if true;
     }
 
+    // Academic Semesters (Semester 1 - Semester 8 and future semesters)
+    match /academicSemesters/{semesterId} {
+      allow get, list: if true;
+      allow write: if true;
+    }
+
     // Academic Papers (MJC, MIC, MDC manually created papers)
     match /academicPapers/{paperId} {
       allow get, list: if true;

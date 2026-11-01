@@ -54,6 +54,9 @@ export interface AdminRecord {
   username: string;
   email: string;
   fullName?: string;
+  phone?: string;
+  designation?: string;
+  photoUrl?: string;
   role: 'admin';
   passwordHash: string;
   institutionName?: string;
@@ -295,6 +298,87 @@ export async function updateAdminPasswordServer(
     local.adminPasswordHash = newPasswordHash;
     syncLocalFile(local);
   }
+}
+
+/**
+ * Retrieves an admin record by direct UID
+ */
+export async function getAdminByIdServer(adminUid: string): Promise<AdminRecord | null> {
+  try {
+    const db = getDb();
+    const docRef = doc(db, 'admins', adminUid);
+    const snap = await getDoc(docRef);
+    if (snap.exists()) {
+      return snap.data() as AdminRecord;
+    }
+  } catch (err) {
+    console.warn('[FirestoreServer] getAdminByIdServer error:', (err as Error).message);
+  }
+
+  const local = readLocalFile();
+  if (local && local.adminUid === adminUid) {
+    return {
+      uid: local.adminUid,
+      username: local.adminUsername || 'admin',
+      email: local.adminEmail || '',
+      role: 'admin',
+      passwordHash: local.adminPasswordHash || '',
+      institutionName: local.institutionName,
+      createdAt: local.bootstrappedAt || new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+  }
+
+  return null;
+}
+
+/**
+ * Updates admin profile fields (fullName, phone, designation, photoUrl, institutionName) in Firestore
+ */
+export async function updateAdminProfileServer(
+  adminUid: string,
+  updates: Partial<AdminRecord>
+): Promise<AdminRecord> {
+  const db = getDb();
+  const now = new Date().toISOString();
+  const docRef = doc(db, 'admins', adminUid);
+
+  const cleanUpdates: any = {
+    updatedAt: now,
+  };
+
+  if (updates.fullName !== undefined) cleanUpdates.fullName = updates.fullName.trim();
+  if (updates.email !== undefined) cleanUpdates.email = updates.email.trim().toLowerCase();
+  if (updates.phone !== undefined) cleanUpdates.phone = updates.phone.trim();
+  if (updates.designation !== undefined) cleanUpdates.designation = updates.designation.trim();
+  if (updates.photoUrl !== undefined) cleanUpdates.photoUrl = updates.photoUrl.trim();
+  if (updates.institutionName !== undefined) cleanUpdates.institutionName = updates.institutionName.trim();
+
+  await updateDoc(docRef, cleanUpdates);
+
+  // Read updated record
+  const updatedSnap = await getDoc(docRef);
+  const updatedRecord = updatedSnap.data() as AdminRecord;
+
+  // Also sync bootstrap document if email or institutionName updated
+  try {
+    const bootRef = doc(db, 'systemSettings', 'bootstrap');
+    await updateDoc(bootRef, {
+      institutionName: updatedRecord.institutionName || 'NGM Degree Mahavidyalaya',
+      adminEmail: updatedRecord.email,
+      updatedAt: now,
+    });
+  } catch (err) {
+    console.warn('Could not sync bootstrap institutionName:', err);
+  }
+
+  const local = readLocalFile();
+  if (local && local.adminUid === adminUid) {
+    Object.assign(local, cleanUpdates);
+    syncLocalFile(local);
+  }
+
+  return updatedRecord;
 }
 
 // Local helper to read/write disk cache as safety net

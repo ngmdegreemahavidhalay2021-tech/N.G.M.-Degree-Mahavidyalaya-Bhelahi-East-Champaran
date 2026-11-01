@@ -41,6 +41,11 @@ import { AdminLoginModal } from './components/AdminLoginModal';
 import { BootstrapSetupModal } from './components/BootstrapSetupModal';
 import { PasswordRecoveryModal } from './components/PasswordRecoveryModal';
 import { DeploymentGuideModal } from './components/DeploymentGuideModal';
+import { PortalLoginPage } from './components/PortalLoginPage';
+import { ProfileModule } from './components/ProfileModule';
+import { AcademicSessionModule } from './components/AcademicSessionModule';
+import { SemesterModule } from './components/SemesterModule';
+import { SystemSettingsModule } from './components/SystemSettingsModule';
 import {
   Department,
   Subject,
@@ -49,6 +54,7 @@ import {
   AdminProfile,
   SystemBootstrapStatus,
   CollegeStats,
+  AppearanceSettings,
 } from './types';
 import {
   getDepartments,
@@ -58,6 +64,7 @@ import {
   getCollegeStats,
   seedInitialCollegeData,
   logActivity,
+  getAppearanceSettings,
 } from './services/collegeService';
 import { fetchBootstrapStatus } from './services/examService';
 
@@ -89,12 +96,58 @@ export default function App() {
   const [collegeName, setCollegeName] = useState('NGM Degree Mahavidyalaya');
   const [loading, setLoading] = useState(true);
 
+  // Appearance Customization State
+  const [appearanceSettings, setAppearanceSettings] = useState<AppearanceSettings>({
+    appearanceMode: 'dark',
+    selectedFont: 'Inter',
+    selectedTheme: 'blue',
+  });
+
   // Modals
   const [showLoginModal, setShowLoginModal] = useState(false);
   const [showBootstrapModal, setShowBootstrapModal] = useState(false);
   const [setupToken, setSetupToken] = useState<string | null>(null);
   const [showRecoveryModal, setShowRecoveryModal] = useState(false);
   const [showDeploymentGuide, setShowDeploymentGuide] = useState(false);
+
+  // Apply Appearance Theme & Typography to Document
+  const applyAppearance = (settings: AppearanceSettings) => {
+    // 1. Dark/Light Mode
+    const root = document.documentElement;
+    if (settings.appearanceMode === 'light') {
+      root.classList.remove('dark');
+    } else if (settings.appearanceMode === 'dark') {
+      root.classList.add('dark');
+    } else {
+      // System default
+      if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) {
+        root.classList.add('dark');
+      } else {
+        root.classList.remove('dark');
+      }
+    }
+
+    // 2. Font Family
+    const FONT_MAP: Record<string, string> = {
+      Inter: 'Inter, system-ui, sans-serif',
+      Roboto: 'Roboto, sans-serif',
+      Poppins: 'Poppins, sans-serif',
+      'Open Sans': '"Open Sans", sans-serif',
+      Lato: 'Lato, sans-serif',
+      Arial: 'Arial, sans-serif',
+      'System Default': 'system-ui, -apple-system, BlinkMacSystemFont, sans-serif',
+    };
+    const targetFont = FONT_MAP[settings.selectedFont] || 'Inter, system-ui, sans-serif';
+    document.body.style.fontFamily = targetFont;
+
+    // 3. Theme Attribute
+    root.setAttribute('data-theme', settings.selectedTheme || 'blue');
+  };
+
+  const handleAppearanceChanged = (newSettings: AppearanceSettings) => {
+    setAppearanceSettings(newSettings);
+    applyAppearance(newSettings);
+  };
 
   // Read URL query params on boot
   useEffect(() => {
@@ -110,10 +163,23 @@ export default function App() {
   const initSystem = async () => {
     try {
       setLoading(true);
-      const bStatus = await fetchBootstrapStatus();
+      const [bStatus, appSettings] = await Promise.all([
+        fetchBootstrapStatus(),
+        getAppearanceSettings().catch(() => ({
+          appearanceMode: 'dark' as const,
+          selectedFont: 'Inter' as const,
+          selectedTheme: 'blue' as const,
+        })),
+      ]);
+
       setBootstrapStatus(bStatus);
       if (bStatus.institutionName) {
         setCollegeName(bStatus.institutionName);
+      }
+
+      if (appSettings) {
+        setAppearanceSettings(appSettings);
+        applyAppearance(appSettings);
       }
 
       // Check saved session
@@ -225,6 +291,25 @@ export default function App() {
     setAdmin(null);
   };
 
+  // Loading screen with institutional seal
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center p-6 text-slate-200">
+        <div className="w-14 h-14 rounded-2xl bg-gradient-to-tr from-blue-600 via-indigo-600 to-cyan-400 p-0.5 shadow-2xl shadow-blue-500/30 mb-5 animate-pulse">
+          <div className="w-full h-full bg-slate-950 rounded-[14px] flex items-center justify-center">
+            <GraduationCap className="w-7 h-7 text-blue-400" />
+          </div>
+        </div>
+        <h2 className="text-base font-bold text-white tracking-tight">{collegeName}</h2>
+        <p className="text-xs text-blue-400 font-medium mt-1">Practical Examination Marks Administration ERP</p>
+        <div className="mt-6 flex items-center gap-2.5 text-xs text-slate-400">
+          <div className="w-4 h-4 border-2 border-blue-500/30 border-t-blue-500 rounded-full animate-spin" />
+          <span>Connecting to Firebase Firestore...</span>
+        </div>
+      </div>
+    );
+  }
+
   // Public Teacher / Examiner Form Route
   if (publicFormToken) {
     return (
@@ -239,9 +324,56 @@ export default function App() {
     );
   }
 
+  // UN-AUTHENTICATED PORTAL ACCESS GATE
+  // Portal link must open login first; never allow unauthenticated users to view the Dashboard
+  if (!admin) {
+    return (
+      <>
+        <PortalLoginPage
+          collegeName={collegeName}
+          onLoginSuccess={handleLoginSuccess}
+          onRequireSetup={handleRequireSetup}
+          onOpenRecovery={() => setShowRecoveryModal(true)}
+          onOpenDeployGuide={() => setShowDeploymentGuide(true)}
+        />
+
+        {showBootstrapModal && setupToken && (
+          <BootstrapSetupModal
+            setupToken={setupToken}
+            defaultInstitution={collegeName}
+            onSuccess={(newAdmin, newToken) => {
+              setAdmin(newAdmin);
+              localStorage.setItem('admin_session_token', newToken);
+              setShowBootstrapModal(false);
+              setSetupToken(null);
+              initSystem();
+            }}
+            onCancel={() => {
+              setShowBootstrapModal(false);
+              setSetupToken(null);
+            }}
+          />
+        )}
+
+        {showRecoveryModal && (
+          <PasswordRecoveryModal
+            onClose={() => setShowRecoveryModal(false)}
+            onSuccess={() => {
+              setShowRecoveryModal(false);
+            }}
+          />
+        )}
+
+        {showDeploymentGuide && (
+          <DeploymentGuideModal onClose={() => setShowDeploymentGuide(false)} />
+        )}
+      </>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 flex antialiased">
-      {/* 11 Module Sidebar */}
+      {/* 7 Group Collapsible Sidebar */}
       <Sidebar
         activeModule={activeModule}
         onSelectModule={setActiveModule}
@@ -521,6 +653,12 @@ export default function App() {
             </div>
           )}
 
+          {/* ACADEMIC SESSIONS MANAGEMENT */}
+          {activeModule === 'academic-sessions' && <AcademicSessionModule />}
+
+          {/* ACADEMIC SEMESTER MANAGEMENT */}
+          {activeModule === 'semesters' && <SemesterModule />}
+
           {/* MODULE 2: DEPARTMENT MANAGEMENT */}
           {activeModule === 'departments' && (
             <DepartmentModule
@@ -625,6 +763,33 @@ export default function App() {
                 setCollegeName(name);
                 logActivity('INSTITUTION_NAME_UPDATED', `Updated college identity to ${name}`);
               }}
+            />
+          )}
+
+          {/* SYSTEM SETTINGS & APPEARANCE CUSTOMIZATION */}
+          {activeModule === 'appearance-settings' && (
+            <SystemSettingsModule
+              currentSettings={appearanceSettings}
+              onSettingsChanged={handleAppearanceChanged}
+              collegeName={collegeName}
+            />
+          )}
+
+          {/* MY PROFILE */}
+          {activeModule === 'profile' && admin && (
+            <ProfileModule
+              admin={admin}
+              onProfileUpdated={(updated) => setAdmin(updated)}
+              initialTab="profile"
+            />
+          )}
+
+          {/* CHANGE PASSWORD */}
+          {activeModule === 'change-password' && admin && (
+            <ProfileModule
+              admin={admin}
+              onProfileUpdated={(updated) => setAdmin(updated)}
+              initialTab="password"
             />
           )}
         </main>

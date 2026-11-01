@@ -32,6 +32,15 @@ export interface AcademicSession {
   updatedAt?: string;
 }
 
+export interface AcademicSemester {
+  id: string; // e.g. "sem_1", "sem_2", ...
+  semesterName: string; // "Semester 1", "Semester 2", ...
+  order: number;
+  isActive: boolean;
+  createdAt: string;
+  updatedAt?: string;
+}
+
 export interface AcademicPaper {
   id: string; // unique composite key: paper_${cleanSession}_${cleanSem}_${subjectType}_${cleanPaperName}
   session: string; // "2023-27", "2024-28", "2025-29", "2026-30"
@@ -226,8 +235,38 @@ export interface AdminProfile {
   username: string;
   email: string;
   fullName?: string;
+  phone?: string;
+  designation?: string;
+  photoUrl?: string;
   role: 'admin';
   institutionName: string;
+  updatedAt?: string;
+}
+
+export type AppearanceMode = 'light' | 'dark' | 'system';
+export type AppearanceFont =
+  | 'Inter'
+  | 'Roboto'
+  | 'Poppins'
+  | 'Open Sans'
+  | 'Lato'
+  | 'Arial'
+  | 'System Default';
+export type AppearanceTheme =
+  | 'blue'
+  | 'indigo'
+  | 'green'
+  | 'purple'
+  | 'teal'
+  | 'slate'
+  | 'rose';
+
+export interface AppearanceSettings {
+  appearanceMode: AppearanceMode;
+  selectedFont: AppearanceFont;
+  selectedTheme: AppearanceTheme;
+  updatedAt?: string;
+  updatedBy?: string;
 }
 
 export interface SystemBootstrapStatus {

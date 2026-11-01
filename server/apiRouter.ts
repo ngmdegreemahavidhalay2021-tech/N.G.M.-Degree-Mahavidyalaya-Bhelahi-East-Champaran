@@ -12,6 +12,8 @@ import {
   completeAdminSetupServer,
   getAdminByLoginServer,
   updateAdminPasswordServer,
+  getAdminByIdServer,
+  updateAdminProfileServer,
 } from './firestoreServer.ts';
 
 export const apiRouter = express.Router();
@@ -517,6 +519,157 @@ apiRouter.post(['/auth/reset-password', '/api/auth/reset-password'], async (req:
   } catch (err: any) {
     console.error('Password reset error:', err);
     return res.status(500).json({ error: 'Password reset failed', message: err.message });
+  }
+});
+
+/**
+ * Helper: extract verified admin session payload from request
+ */
+function extractAdminSession(req: Request) {
+  const authHeader = req.headers.authorization;
+  const token = authHeader && authHeader.startsWith('Bearer ') ? authHeader.slice(7) : (req.body && req.body.token);
+  if (!token) return null;
+  const payload = verifySessionToken(token);
+  if (!payload || payload.role !== 'admin') return null;
+  return payload;
+}
+
+/**
+ * GET /api/admin/profile
+ * Retrieves active admin's profile directly from Firestore
+ */
+apiRouter.get(['/admin/profile', '/api/admin/profile'], async (req: Request, res: Response): Promise<any> => {
+  try {
+    const session = extractAdminSession(req);
+    if (!session) {
+      return res.status(401).json({ error: 'Unauthorized', message: 'Valid administrator session is required.' });
+    }
+
+    const admin = await getAdminByIdServer(session.uid) || await getAdminByLoginServer(session.username);
+    if (!admin) {
+      return res.status(404).json({ error: 'Admin record not found' });
+    }
+
+    return res.json({
+      success: true,
+      profile: {
+        uid: admin.uid,
+        username: admin.username,
+        email: admin.email,
+        fullName: admin.fullName || admin.username,
+        phone: admin.phone || '',
+        designation: admin.designation || 'Principal / Controller of Examinations',
+        photoUrl: admin.photoUrl || '',
+        role: admin.role,
+        institutionName: admin.institutionName || 'NGM Degree Mahavidyalaya',
+        createdAt: admin.createdAt,
+        updatedAt: admin.updatedAt,
+      },
+    });
+  } catch (err: any) {
+    console.error('Fetch admin profile error:', err);
+    return res.status(500).json({ error: 'Failed to retrieve profile', message: err.message });
+  }
+});
+
+/**
+ * PUT /api/admin/profile
+ * Updates administrator profile in Firestore
+ */
+apiRouter.put(['/admin/profile', '/api/admin/profile'], async (req: Request, res: Response): Promise<any> => {
+  try {
+    const session = extractAdminSession(req);
+    if (!session) {
+      return res.status(401).json({ error: 'Unauthorized', message: 'Valid administrator session is required.' });
+    }
+
+    const { fullName, email, phone, designation, photoUrl, institutionName } = req.body || {};
+
+    if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(email).trim())) {
+      return res.status(400).json({ error: 'Invalid email format' });
+    }
+
+    const updated = await updateAdminProfileServer(session.uid, {
+      fullName,
+      email,
+      phone,
+      designation,
+      photoUrl,
+      institutionName,
+    });
+
+    logAudit('ADMIN_PROFILE_UPDATED', session.username, `Admin profile details updated by ${session.username}.`);
+
+    return res.json({
+      success: true,
+      message: 'Administrator profile updated successfully in Firestore.',
+      profile: {
+        uid: updated.uid,
+        username: updated.username,
+        email: updated.email,
+        fullName: updated.fullName,
+        phone: updated.phone || '',
+        designation: updated.designation || '',
+        photoUrl: updated.photoUrl || '',
+        role: updated.role,
+        institutionName: updated.institutionName,
+        updatedAt: updated.updatedAt,
+      },
+    });
+  } catch (err: any) {
+    console.error('Update admin profile error:', err);
+    return res.status(500).json({ error: 'Failed to update profile', message: err.message });
+  }
+});
+
+/**
+ * POST /api/admin/change-password
+ * Verifies current password and updates to new password in Firestore
+ */
+apiRouter.post(['/admin/change-password', '/api/admin/change-password'], async (req: Request, res: Response): Promise<any> => {
+  try {
+    const session = extractAdminSession(req);
+    if (!session) {
+      return res.status(401).json({ error: 'Unauthorized', message: 'Valid administrator session is required.' });
+    }
+
+    const { currentPassword, newPassword, confirmPassword } = req.body || {};
+
+    if (!currentPassword || !newPassword) {
+      return res.status(400).json({ error: 'Current password and new password are required.' });
+    }
+
+    if (newPassword !== confirmPassword) {
+      return res.status(400).json({ error: 'New password and confirm password do not match.' });
+    }
+
+    const admin = await getAdminByIdServer(session.uid) || await getAdminByLoginServer(session.username);
+    if (!admin) {
+      return res.status(404).json({ error: 'Admin record not found.' });
+    }
+
+    const isValidCurrent = verifyPassword(currentPassword, admin.passwordHash);
+    if (!isValidCurrent) {
+      return res.status(401).json({ error: 'Incorrect current password. Please enter your existing password.' });
+    }
+
+    const strengthCheck = validatePasswordStrength(newPassword);
+    if (!strengthCheck.valid) {
+      return res.status(400).json({ error: strengthCheck.message });
+    }
+
+    const newHash = hashPassword(newPassword);
+    await updateAdminPasswordServer(admin.uid, newHash);
+
+    logAudit('ADMIN_PASSWORD_CHANGED', session.username, `Administrator password changed successfully by ${session.username}.`);
+
+    return res.json({
+      success: true,
+      message: 'Password changed successfully. Your new password has been securely stored in Firestore.',
+    });
+  } catch (err: any) {
+    console.error('Change password error:', err);
+    return res.status(500).json({ error: 'Failed to change password', message: err.message });
   }
 });
 
