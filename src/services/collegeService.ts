@@ -177,6 +177,22 @@ export async function deleteSubject(id: string): Promise<void> {
 
 // ==================== PRACTICAL FORMS ====================
 
+// ==================== SEMESTER NORMALIZATION ====================
+
+export function normalizeSemester(sem: string | undefined | null): string {
+  if (!sem) return 'Semester 1';
+  const clean = sem.trim().toLowerCase();
+  if (clean === '1' || clean === '1st' || clean.includes('1st') || clean === 'semester 1' || clean === 'semester i' || clean === 'sem 1') return 'Semester 1';
+  if (clean === '2' || clean === '2nd' || clean.includes('2nd') || clean === 'semester 2' || clean === 'semester ii' || clean === 'sem 2') return 'Semester 2';
+  if (clean === '3' || clean === '3rd' || clean.includes('3rd') || clean === 'semester 3' || clean === 'semester iii' || clean === 'sem 3') return 'Semester 3';
+  if (clean === '4' || clean === '4th' || clean.includes('4th') || clean === 'semester 4' || clean === 'semester iv' || clean === 'sem 4') return 'Semester 4';
+  if (clean === '5' || clean === '5th' || clean.includes('5th') || clean === 'semester 5' || clean === 'semester v' || clean === 'sem 5') return 'Semester 5';
+  if (clean === '6' || clean === '6th' || clean.includes('6th') || clean === 'semester 6' || clean === 'semester vi' || clean === 'sem 6') return 'Semester 6';
+  if (clean === '7' || clean === '7th' || clean.includes('7th') || clean === 'semester 7' || clean === 'semester vii' || clean === 'sem 7') return 'Semester 7';
+  if (clean === '8' || clean === '8th' || clean.includes('8th') || clean === 'semester 8' || clean === 'semester viii' || clean === 'sem 8') return 'Semester 8';
+  return sem.trim();
+}
+
 function generateSecureToken(): string {
   const chars = 'abcdefghjkmnpqrstuvwxyz23456789';
   let token = '';
@@ -275,18 +291,23 @@ export async function getPracticalFormByToken(token: string): Promise<PracticalF
   }
 }
 
-export async function createPracticalForm(data: Omit<PracticalForm, 'id' | 'token' | 'createdAt' | 'updatedAt'>): Promise<PracticalForm> {
+export async function createPracticalForm(
+  data: Omit<PracticalForm, 'id' | 'token' | 'createdAt' | 'updatedAt'>,
+  allottedStudents?: PaperStudent[]
+): Promise<PracticalForm> {
   const id = `form_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
   const token = generateSecureToken();
   const now = new Date().toISOString();
 
   const maxMarks = Number(data.maxMarks) || 50;
   const minPassingMarks = data.minPassingMarks !== undefined ? Number(data.minPassingMarks) : Math.round(maxMarks * 0.33);
+  const initialStudentCount = allottedStudents ? allottedStudents.length : (data.studentCount || 0);
 
   const form: PracticalForm = {
     ...data,
     maxMarks,
     minPassingMarks,
+    studentCount: initialStudentCount,
     id,
     token,
     createdAt: now,
@@ -295,7 +316,18 @@ export async function createPracticalForm(data: Omit<PracticalForm, 'id' | 'toke
 
   try {
     await setDoc(doc(db, 'practicalForms', id), form);
-    await logActivity('PRACTICAL_FORM_CREATED', `Created practical examination form "${form.title}" (${form.subjectCode}) - Max: ${maxMarks}, Min Pass: ${minPassingMarks}`, 'PracticalForm', id);
+    await logActivity(
+      'PRACTICAL_FORM_CREATED',
+      `Created practical examination form "${form.title}" (${form.subjectCode}) - Max: ${maxMarks}, Min Pass: ${minPassingMarks}, Students: ${initialStudentCount}`,
+      'PracticalForm',
+      id
+    );
+
+    // Automatically batch enroll all allotted students
+    if (allottedStudents && allottedStudents.length > 0) {
+      await enrollPaperStudentsInForm(form, allottedStudents);
+    }
+
     return form;
   } catch (err) {
     handleFirestoreError(err, OperationType.CREATE, 'practicalForms');
@@ -484,9 +516,199 @@ export async function getFormEnrollments(practicalFormId: string): Promise<FormE
     const snap = await getDocs(q);
     const list: FormEnrollment[] = [];
     snap.forEach((d) => list.push({ id: d.id, ...d.data() } as FormEnrollment));
-    return list.sort((a, b) => a.rollNumber.localeCompare(b.rollNumber, undefined, { numeric: true }));
+
+    if (list.length > 0) {
+      return list.sort((a, b) => a.rollNumber.localeCompare(b.rollNumber, undefined, { numeric: true }));
+    }
+
+    // Auto-Recovery Fallback: If formEnrollments are empty, check if form has linked paperStudents in Firestore
+    const formRef = doc(db, 'practicalForms', practicalFormId);
+    const formSnap = await getDoc(formRef);
+    if (formSnap.exists()) {
+      const formData = formSnap.data() as PracticalForm;
+      const matchingStudents = await getMatchingAllottedStudents({
+        session: formData.session || formData.examYear || '2025-29',
+        semester: formData.semester || 'Semester 2',
+        subjectType: formData.subjectType,
+        paperId: formData.paperId,
+        paperName: formData.paperName,
+        subject: formData.subjectName,
+      });
+
+      if (matchingStudents.length > 0) {
+        await enrollPaperStudentsInForm({ ...formData, id: practicalFormId }, matchingStudents);
+        const refreshedSnap = await getDocs(q);
+        const refreshedList: FormEnrollment[] = [];
+        refreshedSnap.forEach((d) => refreshedList.push({ ...(d.data() as object), id: d.id } as FormEnrollment));
+        return refreshedList.sort((a, b) => a.rollNumber.localeCompare(b.rollNumber, undefined, { numeric: true }));
+      }
+    }
+
+    return [];
   } catch (err) {
     handleFirestoreError(err, OperationType.LIST, 'formEnrollments');
+  }
+}
+
+export async function enrollPaperStudentsInForm(
+  practicalForm: PracticalForm,
+  paperStudents: PaperStudent[]
+): Promise<number> {
+  try {
+    const now = new Date().toISOString();
+    const batchSize = 400;
+    let count = 0;
+
+    for (let i = 0; i < paperStudents.length; i += batchSize) {
+      const chunk = paperStudents.slice(i, i + batchSize);
+      const batch = writeBatch(db);
+
+      chunk.forEach((std) => {
+        const enrollmentId = `enr_${practicalForm.id}_${std.id}`;
+        const enrollment: FormEnrollment = {
+          id: enrollmentId,
+          practicalFormId: practicalForm.id,
+          studentId: std.id,
+          rollNumber: std.rollNumber,
+          studentName: std.studentName,
+          fatherName: std.fatherName || '',
+          departmentId: practicalForm.departmentId,
+          course: practicalForm.course || `B.A ${practicalForm.subjectName}`,
+          semester: practicalForm.semester,
+          section: std.section || practicalForm.section || 'A',
+          academicSession: practicalForm.session || practicalForm.examYear || '2025-29',
+          status: 'verified',
+          enrolledAt: now,
+        };
+        batch.set(doc(db, 'formEnrollments', enrollmentId), enrollment, { merge: true });
+        count++;
+      });
+
+      await batch.commit();
+    }
+
+    // Update form studentCount atomically
+    await updateDoc(doc(db, 'practicalForms', practicalForm.id), {
+      studentCount: count,
+      updatedAt: now,
+    });
+
+    await logActivity(
+      'STUDENTS_ENROLLED_IN_FORM',
+      `Auto-enrolled ${count} allotted students into practical form "${practicalForm.title}"`,
+      'FormEnrollment',
+      practicalForm.id
+    );
+
+    return count;
+  } catch (err) {
+    handleFirestoreError(err, OperationType.WRITE, 'formEnrollments');
+  }
+}
+
+export async function getMatchingAllottedStudents(params: {
+  session: string;
+  semester: string;
+  subjectType?: SubjectType;
+  paperId?: string;
+  paperName?: string;
+  subject: string;
+}): Promise<PaperStudent[]> {
+  try {
+    const colRef = collection(db, 'paperStudents');
+    const normSubject = params.subject.trim().toUpperCase();
+    const normSemester = normalizeSemester(params.semester);
+
+    // Direct match by paperId if provided
+    if (params.paperId) {
+      const q = query(colRef, where('paperId', '==', params.paperId));
+      const snap = await getDocs(q);
+      const list: PaperStudent[] = [];
+      snap.forEach((d) => {
+        const data = d.data() as PaperStudent;
+        if (data.subject?.trim().toUpperCase() === normSubject) {
+          list.push({ ...(data as object), id: d.id } as PaperStudent);
+        }
+      });
+      if (list.length > 0) {
+        return list.sort((a, b) => a.rollNumber.localeCompare(b.rollNumber, undefined, { numeric: true }));
+      }
+    }
+
+    // Match by session and iterate
+    const q = query(colRef, where('session', '==', params.session));
+    const snap = await getDocs(q);
+    const list: PaperStudent[] = [];
+    snap.forEach((d) => {
+      const data = d.data() as PaperStudent;
+      const semMatches = normalizeSemester(data.semester) === normSemester;
+      const typeMatches = !params.subjectType || data.subjectType === params.subjectType;
+      const subjMatches = data.subject?.trim().toUpperCase() === normSubject;
+      const paperMatches =
+        !params.paperName ||
+        data.paperName?.trim().toUpperCase() === params.paperName.trim().toUpperCase() ||
+        data.paperName?.replace(/[^a-zA-Z0-9]/g, '') === params.paperName.replace(/[^a-zA-Z0-9]/g, '');
+
+      if (semMatches && typeMatches && subjMatches && paperMatches) {
+        list.push({ ...(data as object), id: d.id } as PaperStudent);
+      }
+    });
+
+    return list.sort((a, b) => a.rollNumber.localeCompare(b.rollNumber, undefined, { numeric: true }));
+  } catch (err) {
+    console.warn('Error fetching matching allotted students:', err);
+    return [];
+  }
+}
+
+export async function getPaperDistinctSubjects(
+  paperId: string
+): Promise<Array<{ subject: string; studentCount: number }>> {
+  try {
+    const q = query(collection(db, 'paperStudents'), where('paperId', '==', paperId));
+    const snap = await getDocs(q);
+    const countMap: Record<string, number> = {};
+    snap.forEach((d) => {
+      const data = d.data() as PaperStudent;
+      const subj = (data.subject || 'PRACTICAL').trim().toUpperCase();
+      countMap[subj] = (countMap[subj] || 0) + 1;
+    });
+    return Object.entries(countMap)
+      .map(([subject, studentCount]) => ({
+        subject,
+        studentCount,
+      }))
+      .sort((a, b) => a.subject.localeCompare(b.subject));
+  } catch (err) {
+    console.warn('Error fetching distinct subjects for paper:', err);
+    return [];
+  }
+}
+
+export async function getAcademicPapersForBuilder(
+  session?: string,
+  semester?: string,
+  subjectType?: SubjectType
+): Promise<AcademicPaper[]> {
+  try {
+    const colRef = collection(db, 'academicPapers');
+    const snap = await getDocs(colRef);
+    let list: AcademicPaper[] = [];
+    snap.forEach((d) => list.push({ id: d.id, ...d.data() } as AcademicPaper));
+
+    if (session && session !== 'ALL') {
+      list = list.filter((p) => p.session === session);
+    }
+    if (semester && semester !== 'ALL') {
+      const normSem = normalizeSemester(semester);
+      list = list.filter((p) => normalizeSemester(p.semester) === normSem);
+    }
+    if (subjectType && subjectType !== ('ALL' as any)) {
+      list = list.filter((p) => p.subjectType === subjectType);
+    }
+    return list.sort((a, b) => a.paperName.localeCompare(b.paperName, undefined, { numeric: true }));
+  } catch (err) {
+    handleFirestoreError(err, OperationType.LIST, 'academicPapers');
   }
 }
 

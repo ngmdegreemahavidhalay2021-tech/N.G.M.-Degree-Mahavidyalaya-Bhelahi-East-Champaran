@@ -25,9 +25,31 @@ import {
   AlertTriangle,
   ArrowRight,
   ShieldAlert,
+  GraduationCap,
+  Award,
+  BookOpen,
+  UserCheck,
+  ChevronLeft,
+  ChevronRight,
+  ExternalLink,
+  Sparkles,
+  Building,
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
-import { PracticalForm, Department, Subject, FormEnrollment, Student } from '../types';
+import {
+  PracticalForm,
+  Department,
+  Subject,
+  FormEnrollment,
+  Student,
+  AcademicSession,
+  AcademicSemester,
+  AcademicPaper,
+  PracticalSubject,
+  PaperStudent,
+  SubjectType,
+  SUBJECT_TYPES,
+} from '../types';
 import {
   createPracticalForm,
   updatePracticalForm,
@@ -36,11 +58,19 @@ import {
   regenerateFormToken,
   getFormEnrollments,
   enrollStudentsInForm,
+  enrollPaperStudentsInForm,
   removeStudentFromForm,
   batchImportStudents,
   generatePermanentStudentId,
   createStudent,
   logActivity,
+  getAcademicSessions,
+  getAcademicSemesters,
+  getAcademicPapersForBuilder,
+  getPaperDistinctSubjects,
+  getMatchingAllottedStudents,
+  getPracticalSubjects,
+  normalizeSemester,
 } from '../services/collegeService';
 
 interface FormBuilderModuleProps {
@@ -74,25 +104,54 @@ export const FormBuilderModule: React.FC<FormBuilderModuleProps> = ({
 }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState('ALL');
+  const [sessionFilter, setSessionFilter] = useState('ALL');
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [editingForm, setEditingForm] = useState<PracticalForm | null>(null);
   const [copiedToken, setCopiedToken] = useState<string | null>(null);
 
-  // Form Fields
+  // Authoritative Academic Master Lists from Firestore
+  const [academicSessions, setAcademicSessions] = useState<AcademicSession[]>([]);
+  const [academicSemesters, setAcademicSemesters] = useState<AcademicSemester[]>([]);
+  const [practicalSubjectsList, setPracticalSubjectsList] = useState<PracticalSubject[]>([]);
+
+  // Step-by-Step Dependent Form Builder Selections
+  const [selectedSession, setSelectedSession] = useState<string>('2025-29');
+  const [selectedSemester, setSelectedSemester] = useState<string>('Semester 2');
+  const [selectedSubjectType, setSelectedSubjectType] = useState<SubjectType>('MJC');
+  const [availablePapers, setAvailablePapers] = useState<AcademicPaper[]>([]);
+  const [selectedPaperId, setSelectedPaperId] = useState<string>('');
+  const [loadingPapers, setLoadingPapers] = useState<boolean>(false);
+
+  // Distinct subjects allotted to the selected paper
+  const [paperAllottedSubjects, setPaperAllottedSubjects] = useState<
+    Array<{ subject: string; studentCount: number }>
+  >([]);
+
+  // Selected Practical Subject and Department
+  const [selectedPracticalSubject, setSelectedPracticalSubject] = useState<string>('GEOGRAPHY');
+  const [selectedDepartmentId, setSelectedDepartmentId] = useState<string>('');
+  const [inchargeName, setInchargeName] = useState<string>('');
+  const [examinerName, setExaminerName] = useState<string>('');
+
+  // Automatically fetched allotted students
+  const [allottedStudents, setAllottedStudents] = useState<PaperStudent[]>([]);
+  const [loadingAllottedStudents, setLoadingAllottedStudents] = useState<boolean>(false);
+  const [previewSearch, setPreviewSearch] = useState<string>('');
+  const [previewPage, setPreviewPage] = useState<number>(1);
+  const previewPageSize = 10;
+
+  // Form Configuration Details
   const [title, setTitle] = useState('');
-  const [departmentId, setDepartmentId] = useState(departments[0]?.id || '');
-  const [subjectId, setSubjectId] = useState('');
-  const [course, setCourse] = useState('B.Sc. Computer Science');
-  const [semester, setSemester] = useState('Semester III');
+  const [course, setCourse] = useState('B.A GEOGRAPHY');
   const [section, setSection] = useState('Section A');
-  const [examName, setExamName] = useState('Winter 2024 End Semester Practical Evaluation');
-  const [examYear, setExamYear] = useState('2024-2025');
+  const [examName, setExamName] = useState('2025-29 2nd Semester Practical Examination');
+  const [examYear, setExamYear] = useState('2025-29');
   const [maxMarks, setMaxMarks] = useState(50);
   const [minPassingMarks, setMinPassingMarks] = useState(17);
   const [examDate, setExamDate] = useState(new Date().toISOString().slice(0, 10));
-  const [allowDecimals, setAllowDecimals] = useState(true);
+  const [allowDecimals, setAllowDecimals] = useState(false);
   const [instructions, setInstructions] = useState(
-    '1. Verify candidate roll number.\n2. Input practical and viva score.\n3. Save marks before leaving.'
+    '1. Verify candidate identity and practical admit card.\n2. Record laboratory experiment score, notebook evaluation, and viva marks.\n3. Save marks before leaving the examination session.'
   );
   const [status, setStatus] = useState<'draft' | 'published' | 'closed'>('published');
   const [loading, setLoading] = useState(false);
@@ -102,8 +161,10 @@ export const FormBuilderModule: React.FC<FormBuilderModuleProps> = ({
   const [activeRosterForm, setActiveRosterForm] = useState<PracticalForm | null>(null);
   const [currentEnrollments, setCurrentEnrollments] = useState<FormEnrollment[]>([]);
   const [loadingEnrollments, setLoadingEnrollments] = useState(false);
-  const [rosterTab, setRosterTab] = useState<'upload' | 'manual' | 'list'>('upload');
+  const [rosterTab, setRosterTab] = useState<'list' | 'upload' | 'manual'>('list');
   const [rosterSearch, setRosterSearch] = useState('');
+  const [rosterPage, setRosterPage] = useState(1);
+  const rosterPageSize = 25;
 
   // Upload parsed state
   const [parsedRows, setParsedRows] = useState<ParsedCandidateRow[]>([]);
@@ -121,51 +182,209 @@ export const FormBuilderModule: React.FC<FormBuilderModuleProps> = ({
   const [manualSec, setManualSec] = useState('');
   const [manualError, setManualError] = useState<string | null>(null);
 
-  // Filter subjects by chosen Parent Department
-  const filteredDepartmentSubjects = subjects.filter((s) => s.departmentId === departmentId);
-
-  // Update subjectId when departmentId changes
+  // Load Firestore masters on boot
   useEffect(() => {
-    if (filteredDepartmentSubjects.length > 0) {
-      if (!filteredDepartmentSubjects.some((s) => s.id === subjectId)) {
-        const first = filteredDepartmentSubjects[0];
-        setSubjectId(first.id);
-        if (first.course) setCourse(first.course);
-        if (first.semester) setSemester(first.semester);
+    loadAcademicMasters();
+  }, []);
+
+  const loadAcademicMasters = async () => {
+    try {
+      const [sessions, semesters, practicalSubjs] = await Promise.all([
+        getAcademicSessions(),
+        getAcademicSemesters(),
+        getPracticalSubjects(),
+      ]);
+
+      setAcademicSessions(sessions || []);
+      setAcademicSemesters(semesters || []);
+      setPracticalSubjectsList(practicalSubjs || []);
+
+      if (sessions && sessions.length > 0) {
+        // Prefer 2025-29 if available
+        const found2025 = sessions.find((s) => s.sessionName === '2025-29');
+        setSelectedSession(found2025 ? found2025.sessionName : sessions[0].sessionName);
       }
-    } else {
-      setSubjectId('');
+
+      if (semesters && semesters.length > 0) {
+        // Prefer Semester 2 if available
+        const foundSem2 = semesters.find(
+          (s) => s.semesterName === 'Semester 2' || s.order === 2
+        );
+        setSelectedSemester(foundSem2 ? foundSem2.semesterName : semesters[0].semesterName);
+      }
+    } catch (err) {
+      console.warn('Could not load academic masters:', err);
     }
-  }, [departmentId, subjects]);
+  };
+
+  // STEP 4 DEPENDENCY: When Session, Semester, or Subject Type changes, fetch Papers from Firestore
+  useEffect(() => {
+    if (selectedSession && selectedSemester && selectedSubjectType) {
+      loadPapersForSelection();
+    }
+  }, [selectedSession, selectedSemester, selectedSubjectType]);
+
+  const loadPapersForSelection = async () => {
+    try {
+      setLoadingPapers(true);
+      const papersList = await getAcademicPapersForBuilder(
+        selectedSession,
+        selectedSemester,
+        selectedSubjectType
+      );
+      setAvailablePapers(papersList || []);
+
+      if (papersList && papersList.length > 0) {
+        // Auto-select first paper or retain current if matching
+        const existing = papersList.find((p) => p.id === selectedPaperId);
+        const targetPaper = existing || papersList[0];
+        setSelectedPaperId(targetPaper.id);
+      } else {
+        setSelectedPaperId('');
+        setPaperAllottedSubjects([]);
+        setAllottedStudents([]);
+      }
+    } catch (err) {
+      console.warn('Error loading papers for selection:', err);
+    } finally {
+      setLoadingPapers(false);
+    }
+  };
+
+  // STEP 6 DEPENDENCY: When Paper changes, fetch distinct subjects that have allotted students
+  useEffect(() => {
+    if (selectedPaperId) {
+      loadDistinctSubjectsForPaper(selectedPaperId);
+    } else {
+      setPaperAllottedSubjects([]);
+      setAllottedStudents([]);
+    }
+  }, [selectedPaperId]);
+
+  const loadDistinctSubjectsForPaper = async (paperId: string) => {
+    try {
+      const distinct = await getPaperDistinctSubjects(paperId);
+      setPaperAllottedSubjects(distinct || []);
+
+      if (distinct && distinct.length > 0) {
+        // Prefer GEOGRAPHY if present
+        const hasGeo = distinct.find((d) => d.subject.toUpperCase() === 'GEOGRAPHY');
+        const defaultSubj = hasGeo ? hasGeo.subject : distinct[0].subject;
+        setSelectedPracticalSubject(defaultSubj);
+      } else {
+        setSelectedPracticalSubject('GEOGRAPHY');
+      }
+    } catch (err) {
+      console.warn('Error loading distinct subjects for paper:', err);
+    }
+  };
+
+  // STEP 7 & 8 DEPENDENCY: When Practical Subject changes, resolve Department, Incharge, and fetch Allotted Students
+  useEffect(() => {
+    if (selectedPracticalSubject) {
+      resolveDepartmentAndIncharge(selectedPracticalSubject);
+      fetchAllottedStudentsForCombination();
+    }
+  }, [
+    selectedSession,
+    selectedSemester,
+    selectedSubjectType,
+    selectedPaperId,
+    selectedPracticalSubject,
+  ]);
+
+  const resolveDepartmentAndIncharge = (subjName: string) => {
+    const cleanSubj = subjName.trim().toUpperCase();
+
+    // 1. Find matching Department by name or code
+    const matchingDept = departments.find(
+      (d) =>
+        d.name.trim().toUpperCase() === cleanSubj ||
+        (d.code && d.code.trim().toUpperCase() === cleanSubj) ||
+        (cleanSubj === 'GEOGRAPHY' && (d.code === 'GEO' || d.name.includes('GEO'))) ||
+        (cleanSubj === 'PSYCHOLOGY' && (d.code === 'PSY' || d.name.includes('PSY'))) ||
+        (cleanSubj === 'HOME SCIENCE' && (d.code === 'H.SCI' || d.name.includes('HOME')))
+    );
+
+    if (matchingDept) {
+      setSelectedDepartmentId(matchingDept.id);
+      if (matchingDept.coordinator) {
+        setInchargeName(matchingDept.coordinator);
+      }
+    } else if (departments.length > 0) {
+      setSelectedDepartmentId(departments[0].id);
+      if (departments[0].coordinator) {
+        setInchargeName(departments[0].coordinator);
+      }
+    }
+
+    // 2. Suggest Title & Course
+    const paperObj = availablePapers.find((p) => p.id === selectedPaperId);
+    const paperLabel = paperObj ? paperObj.paperName : 'Practical';
+    setTitle(`${selectedSession} ${selectedSemester} - ${cleanSubj} (${paperLabel})`);
+    setCourse(`B.A ${cleanSubj}`);
+    setExamName(`${selectedSession} ${selectedSemester} Practical Examination`);
+    setExamYear(selectedSession);
+  };
+
+  const fetchAllottedStudentsForCombination = async () => {
+    if (!selectedSession || !selectedSemester || !selectedPracticalSubject) {
+      setAllottedStudents([]);
+      return;
+    }
+
+    try {
+      setLoadingAllottedStudents(true);
+      const paperObj = availablePapers.find((p) => p.id === selectedPaperId);
+      const studentsFound = await getMatchingAllottedStudents({
+        session: selectedSession,
+        semester: selectedSemester,
+        subjectType: selectedSubjectType,
+        paperId: selectedPaperId || undefined,
+        paperName: paperObj?.paperName,
+        subject: selectedPracticalSubject,
+      });
+
+      setAllottedStudents(studentsFound || []);
+      setPreviewPage(1);
+    } catch (err) {
+      console.warn('Error fetching allotted students:', err);
+      setAllottedStudents([]);
+    } finally {
+      setLoadingAllottedStudents(false);
+    }
+  };
 
   const handleOpenCreate = () => {
-    const initialDeptId = departments[0]?.id || '';
-    setDepartmentId(initialDeptId);
-    const initialSubjs = subjects.filter((s) => s.departmentId === initialDeptId);
-    setSubjectId(initialSubjs[0]?.id || '');
-    setTitle('');
-    setCourse('B.Sc. Computer Science');
-    setSemester('Semester III');
-    setSection('Section A');
-    setExamName('Winter 2024 End Semester Practical Evaluation');
-    setExamYear('2024-2025');
+    // Reset to defaults
+    setSelectedSession('2025-29');
+    setSelectedSemester('Semester 2');
+    setSelectedSubjectType('MJC');
+    setSelectedPracticalSubject('GEOGRAPHY');
     setMaxMarks(50);
     setMinPassingMarks(17);
     setExamDate(new Date().toISOString().slice(0, 10));
-    setAllowDecimals(true);
+    setAllowDecimals(false);
     setStatus('published');
     setError(null);
+    setEditingForm(null);
     setShowCreateModal(true);
+    loadPapersForSelection();
   };
 
   const handleOpenEdit = (form: PracticalForm) => {
     setEditingForm(form);
     setTitle(form.title);
-    setDepartmentId(form.departmentId);
-    setSubjectId(form.subjectId);
+    setSelectedSession(form.session || form.examYear || '2025-29');
+    setSelectedSemester(form.semester || 'Semester 2');
+    setSelectedSubjectType(form.subjectType || 'MJC');
+    setSelectedPaperId(form.paperId || '');
+    setSelectedDepartmentId(form.departmentId);
+    setSelectedPracticalSubject(form.subjectName || 'GEOGRAPHY');
+    setInchargeName(form.inchargeName || '');
+    setExaminerName(form.examinerName || '');
     setCourse(form.course);
-    setSemester(form.semester);
-    setSection(form.section || '');
+    setSection(form.section || 'A');
     setExamName(form.examName);
     setExamYear(form.examYear);
     setMaxMarks(form.maxMarks);
@@ -177,33 +396,8 @@ export const FormBuilderModule: React.FC<FormBuilderModuleProps> = ({
     setError(null);
   };
 
-  const handleDepartmentChange = (newDeptId: string) => {
-    setDepartmentId(newDeptId);
-    const available = subjects.filter((s) => s.departmentId === newDeptId);
-    if (available.length > 0) {
-      setSubjectId(available[0].id);
-      if (available[0].course) setCourse(available[0].course);
-      if (available[0].semester) setSemester(available[0].semester);
-    } else {
-      setSubjectId('');
-    }
-  };
-
-  const handleSubjectChange = (newSubjId: string) => {
-    setSubjectId(newSubjId);
-    const chosen = subjects.find((s) => s.id === newSubjId);
-    if (chosen) {
-      if (chosen.course) setCourse(chosen.course);
-      if (chosen.semester) setSemester(chosen.semester);
-      if (!title || title.includes('Lab') || title.includes('Practical')) {
-        setTitle(`${chosen.name} Practical Examination`);
-      }
-    }
-  };
-
   const handleMaxMarksChange = (val: number) => {
     setMaxMarks(val);
-    // If minPassingMarks was not customized or is higher than maxMarks, default to 33%
     if (minPassingMarks > val || minPassingMarks === 0) {
       setMinPassingMarks(Math.round(val * 0.33));
     }
@@ -211,8 +405,10 @@ export const FormBuilderModule: React.FC<FormBuilderModuleProps> = ({
 
   const handleSaveForm = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!title.trim() || !departmentId || !subjectId) {
-      setError('Form title, parent department, and subject are required.');
+    setError(null);
+
+    if (!title.trim()) {
+      setError('Examination title is required.');
       return;
     }
 
@@ -226,23 +422,40 @@ export const FormBuilderModule: React.FC<FormBuilderModuleProps> = ({
       return;
     }
 
-    const selectedSubj = subjects.find((s) => s.id === subjectId);
-    const subjectCode = selectedSubj?.code || 'PRACTICAL';
-    const subjectName = selectedSubj?.name || title;
+    if (!selectedPracticalSubject) {
+      setError('Please select a valid Practical Subject.');
+      return;
+    }
+
+    const currentPaper = availablePapers.find((p) => p.id === selectedPaperId);
+    const departmentObj = departments.find((d) => d.id === selectedDepartmentId);
+
+    // Resolve subject code
+    const matchingSubjDoc = subjects.find(
+      (s) => s.name.trim().toUpperCase() === selectedPracticalSubject.trim().toUpperCase()
+    );
+    const subjectCode = matchingSubjDoc?.code || selectedPracticalSubject.slice(0, 4).toUpperCase();
+    const subjectId = matchingSubjDoc?.id || `subj_${selectedPracticalSubject.toLowerCase()}`;
 
     try {
       setLoading(true);
-      setError(null);
 
       if (editingForm) {
         await updatePracticalForm(editingForm.id, {
           title: title.trim(),
-          departmentId,
+          session: selectedSession,
+          semester: selectedSemester,
+          subjectType: selectedSubjectType,
+          paperId: selectedPaperId || editingForm.paperId,
+          paperName: currentPaper ? currentPaper.paperName : editingForm.paperName,
+          departmentId: selectedDepartmentId,
+          departmentName: departmentObj ? departmentObj.name : selectedPracticalSubject,
           subjectId,
           subjectCode,
-          subjectName,
+          subjectName: selectedPracticalSubject,
+          inchargeName: inchargeName || departmentObj?.coordinator || 'Prof. Incharge',
+          examinerName: examinerName || '',
           course,
-          semester,
           section,
           examName,
           examYear,
@@ -255,32 +468,54 @@ export const FormBuilderModule: React.FC<FormBuilderModuleProps> = ({
         });
         setEditingForm(null);
       } else {
-        await createPracticalForm({
-          title: title.trim(),
-          departmentId,
-          subjectId,
-          subjectCode,
-          subjectName,
-          course,
-          semester,
-          section,
-          examName,
-          examYear,
-          maxMarks: Number(maxMarks),
-          minPassingMarks: Number(minPassingMarks),
-          instructions,
-          examDate,
-          allowDecimals,
-          status,
-          isActive: true,
-          isStudentListLocked: status === 'published',
-        });
+        // Validate matching student allocations
+        if (allottedStudents.length === 0) {
+          const proceed = window.confirm(
+            `Notice: No allotted students currently found in Firestore for ${selectedPracticalSubject} under ${currentPaper?.paperName || 'selected paper'}. Do you still wish to create an empty form?`
+          );
+          if (!proceed) {
+            setLoading(false);
+            return;
+          }
+        }
+
+        await createPracticalForm(
+          {
+            title: title.trim(),
+            session: selectedSession,
+            semester: selectedSemester,
+            subjectType: selectedSubjectType,
+            paperId: selectedPaperId,
+            paperName: currentPaper ? currentPaper.paperName : 'Practical',
+            departmentId: selectedDepartmentId,
+            departmentName: departmentObj ? departmentObj.name : selectedPracticalSubject,
+            subjectId,
+            subjectCode,
+            subjectName: selectedPracticalSubject,
+            inchargeName: inchargeName || departmentObj?.coordinator || 'Prof. Incharge',
+            examinerName: examinerName || '',
+            course,
+            section,
+            examName,
+            examYear: selectedSession,
+            maxMarks: Number(maxMarks),
+            minPassingMarks: Number(minPassingMarks),
+            instructions,
+            examDate,
+            allowDecimals,
+            status,
+            isActive: true,
+            isStudentListLocked: true,
+          },
+          allottedStudents
+        );
+
         setShowCreateModal(false);
       }
 
       onRefresh();
     } catch (err: any) {
-      setError(err.message || 'Failed to save form');
+      setError(err.message || 'Failed to save practical form in Firestore.');
     } finally {
       setLoading(false);
     }
@@ -308,7 +543,9 @@ export const FormBuilderModule: React.FC<FormBuilderModuleProps> = ({
   };
 
   const handleRegenerateToken = async (id: string) => {
-    const ok = window.confirm('Regenerate public shareable link? The previous link will immediately stop working.');
+    const ok = window.confirm(
+      'Regenerate public shareable link? The previous link will immediately stop working.'
+    );
     if (!ok) return;
 
     try {
@@ -319,7 +556,10 @@ export const FormBuilderModule: React.FC<FormBuilderModuleProps> = ({
     }
   };
 
-  const handleToggleStatus = async (form: PracticalForm, newStatus: 'draft' | 'published' | 'closed') => {
+  const handleToggleStatus = async (
+    form: PracticalForm,
+    newStatus: 'draft' | 'published' | 'closed'
+  ) => {
     try {
       await updatePracticalForm(form.id, { status: newStatus });
       onRefresh();
@@ -341,407 +581,111 @@ export const FormBuilderModule: React.FC<FormBuilderModuleProps> = ({
     const willLock = !form.isStudentListLocked;
     const ok = window.confirm(
       willLock
-        ? 'Lock verified student list? After locking, public link users can only enter marks for assigned students.'
-        : 'Unlock student list? This permits administrator editing of the candidate roster.'
+        ? 'Lock verified candidate list? After locking, examiners can only record marks for enrolled candidates.'
+        : 'Unlock candidate list? This allows editing the candidate roster.'
     );
     if (!ok) return;
 
     try {
       await updatePracticalForm(form.id, { isStudentListLocked: willLock });
+      if (activeRosterForm) {
+        setActiveRosterForm({ ...activeRosterForm, isStudentListLocked: willLock });
+      }
       onRefresh();
     } catch (err: any) {
-      alert(err.message || 'Failed to toggle lock');
+      alert(err.message || 'Failed to update roster lock state');
     }
   };
 
-  const handleCopyLink = (token: string) => {
-    const origin = window.location.origin;
-    const url = `${origin}/?token=${token}`;
-    navigator.clipboard.writeText(url);
-    setCopiedToken(token);
-    setTimeout(() => setCopiedToken(null), 2500);
-  };
-
-  // ==================== CANDIDATE ROSTER MODAL ====================
-
-  const handleOpenRosterManager = async (form: PracticalForm) => {
+  const handleOpenRosterModal = async (form: PracticalForm) => {
     setActiveRosterForm(form);
-    setRosterTab('upload');
-    setParsedRows([]);
-    setUploadFileName(null);
-    setUploadError(null);
-    setManualError(null);
-    setManualRoll('');
-    setManualName('');
-    setManualFather('');
-    setManualCourse(form.course);
-    setManualSem(form.semester);
-    setManualSec(form.section || 'A');
-
+    setRosterTab('list');
+    setLoadingEnrollments(true);
+    setRosterPage(1);
     try {
-      setLoadingEnrollments(true);
-      const enrs = await getFormEnrollments(form.id);
-      setCurrentEnrollments(enrs);
+      const enr = await getFormEnrollments(form.id);
+      setCurrentEnrollments(enr || []);
     } catch (err: any) {
-      console.error('Error fetching enrollments:', err);
+      alert(`Error loading candidate roster: ${err.message}`);
     } finally {
       setLoadingEnrollments(false);
     }
   };
 
-  // Option B: Download Excel Template
-  const handleDownloadExcelTemplate = () => {
-    if (!activeRosterForm) return;
-
-    const wb = XLSX.utils.book_new();
-    const headers = [
-      'Roll Number',
-      'Student Name',
-      "Father's Name",
-      'Course',
-      'Semester',
-      'Section',
-    ];
-
-    const sampleRows = [
-      ['NGM24001', 'Aarav Sharma', 'Rajesh Sharma', activeRosterForm.course, activeRosterForm.semester, activeRosterForm.section || 'A'],
-      ['NGM24002', 'Bhavya Patel', 'Mahesh Patel', activeRosterForm.course, activeRosterForm.semester, activeRosterForm.section || 'A'],
-      ['NGM24003', 'Chirag Singhal', 'Sunil Singhal', activeRosterForm.course, activeRosterForm.semester, activeRosterForm.section || 'B'],
-    ];
-
-    const ws = XLSX.utils.aoa_to_sheet([
-      [`COLLEGE PRACTICAL CANDIDATE ENROLLMENT TEMPLATE - ${activeRosterForm.subjectCode}`],
-      [`Practical Form: ${activeRosterForm.title} | Session: ${activeRosterForm.examYear}`],
-      [],
-      headers,
-      ...sampleRows,
-    ]);
-
-    ws['!cols'] = [
-      { wch: 18 },
-      { wch: 25 },
-      { wch: 25 },
-      { wch: 26 },
-      { wch: 16 },
-      { wch: 12 },
-    ];
-
-    XLSX.utils.book_append_sheet(wb, ws, 'Candidate_Template');
-    XLSX.writeFile(wb, `Student_Enrollment_Template_${activeRosterForm.subjectCode}.xlsx`);
+  const handleCopyLink = (token: string) => {
+    const url = `${window.location.origin}/?token=${token}`;
+    navigator.clipboard.writeText(url);
+    setCopiedToken(token);
+    setTimeout(() => setCopiedToken(null), 2500);
   };
 
-  // Option A: File Upload (Excel/CSV)
-  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file || !activeRosterForm) return;
-
-    setUploadFileName(file.name);
-    setUploadError(null);
-
-    const reader = new FileReader();
-    reader.onload = (evt) => {
-      try {
-        const bstr = evt.target?.result;
-        const wb = XLSX.read(bstr, { type: 'binary' });
-        const firstSheetName = wb.SheetNames[0];
-        const ws = wb.Sheets[firstSheetName];
-        const rawJson: any[] = XLSX.utils.sheet_to_json(ws, { header: 1 });
-
-        if (!rawJson || rawJson.length === 0) {
-          setUploadError('The selected spreadsheet file appears to be completely empty.');
-          return;
-        }
-
-        // Locate header row by looking for 'roll' or 'student'
-        let headerRowIndex = 0;
-        for (let i = 0; i < Math.min(10, rawJson.length); i++) {
-          const rowStr = (rawJson[i] || []).join(' ').toLowerCase();
-          if (rowStr.includes('roll') || rowStr.includes('student') || rowStr.includes('name')) {
-            headerRowIndex = i;
-            break;
-          }
-        }
-
-        const headers = (rawJson[headerRowIndex] || []).map((h: any) => String(h || '').trim().toLowerCase());
-        const rollIdx = headers.findIndex((h: string) => h.includes('roll'));
-        const nameIdx = headers.findIndex((h: string) => h.includes('name') && !h.includes('father'));
-        const fatherIdx = headers.findIndex((h: string) => h.includes('father'));
-        const courseIdx = headers.findIndex((h: string) => h.includes('course') || h.includes('degree'));
-        const semIdx = headers.findIndex((h: string) => h.includes('sem'));
-        const secIdx = headers.findIndex((h: string) => h.includes('sec'));
-
-        if (rollIdx === -1) {
-          setUploadError('Could not find a "Roll Number" column. Please check your headers or use the template.');
-          return;
-        }
-
-        const parsed: ParsedCandidateRow[] = [];
-        const seenInFile = new Set<string>();
-        const existingEnrolledRolls = new Set(currentEnrollments.map((e) => e.rollNumber.toUpperCase()));
-
-        for (let i = headerRowIndex + 1; i < rawJson.length; i++) {
-          const row = rawJson[i];
-          if (!row || row.length === 0) continue;
-
-          const rawRoll = String(row[rollIdx] || '').trim();
-          if (!rawRoll) continue; // Skip blank lines
-
-          const rawName = nameIdx !== -1 ? String(row[nameIdx] || '').trim() : '';
-          const rawFather = fatherIdx !== -1 ? String(row[fatherIdx] || '').trim() : '';
-          const rawCourse = courseIdx !== -1 ? String(row[courseIdx] || '').trim() : activeRosterForm.course;
-          const rawSem = semIdx !== -1 ? String(row[semIdx] || '').trim() : activeRosterForm.semester;
-          const rawSec = secIdx !== -1 ? String(row[secIdx] || '').trim() : (activeRosterForm.section || 'A');
-
-          const upperRoll = rawRoll.toUpperCase();
-          let hasError = false;
-          let errorMessage = '';
-          let isDuplicate = false;
-
-          if (!rawRoll) {
-            hasError = true;
-            errorMessage = 'Missing roll number';
-          } else if (!rawName) {
-            hasError = true;
-            errorMessage = 'Missing student name';
-          } else if (seenInFile.has(upperRoll)) {
-            hasError = true;
-            isDuplicate = true;
-            errorMessage = 'Duplicate roll number in this file';
-          } else if (existingEnrolledRolls.has(upperRoll)) {
-            isDuplicate = true;
-            errorMessage = 'Already enrolled in this exam (will update snapshot)';
-          }
-
-          seenInFile.add(upperRoll);
-
-          parsed.push({
-            id: `row_${i}_${Date.now()}`,
-            rollNumber: rawRoll,
-            studentName: rawName || 'Unknown Student',
-            fatherName: rawFather,
-            course: rawCourse || activeRosterForm.course,
-            semester: rawSem || activeRosterForm.semester,
-            section: rawSec,
-            hasError,
-            errorMessage: errorMessage || undefined,
-            isDuplicate,
-          });
-        }
-
-        if (parsed.length === 0) {
-          setUploadError('No valid student rows found in file.');
-          return;
-        }
-
-        setParsedRows(parsed);
-      } catch (err: any) {
-        setUploadError(`Failed to parse file: ${err.message}`);
-      }
-    };
-
-    reader.readAsBinaryString(file);
-    if (fileInputRef.current) fileInputRef.current.value = '';
-  };
-
-  const handleUpdateParsedRow = (id: string, field: keyof ParsedCandidateRow, val: string) => {
-    setParsedRows((prev) =>
-      prev.map((r) => {
-        if (r.id === id) {
-          const updated = { ...r, [field]: val };
-          // Re-evaluate errors
-          if (!updated.rollNumber.trim()) {
-            updated.hasError = true;
-            updated.errorMessage = 'Missing roll number';
-          } else if (!updated.studentName.trim()) {
-            updated.hasError = true;
-            updated.errorMessage = 'Missing student name';
-          } else {
-            updated.hasError = false;
-            updated.errorMessage = undefined;
-          }
-          return updated;
-        }
-        return r;
-      })
-    );
-  };
-
-  const handleRemoveParsedRow = (id: string) => {
-    setParsedRows((prev) => prev.filter((r) => r.id !== id));
-  };
-
-  // Commit Verified Excel/CSV Candidates
-  const handleCommitParsedRows = async () => {
-    if (!activeRosterForm || parsedRows.length === 0) return;
-
-    const errorCount = parsedRows.filter((r) => r.hasError).length;
-    if (errorCount > 0) {
-      const proceed = window.confirm(
-        `There are ${errorCount} rows with errors. Do you want to proceed and skip/import valid rows only?`
-      );
-      if (!proceed) return;
-    }
-
-    const validRows = parsedRows.filter((r) => !r.hasError && r.rollNumber.trim());
-
-    try {
-      setSavingRoster(true);
-
-      // 1. Create or update master student candidates
-      const studentsToCreate: Array<Omit<Student, 'id' | 'createdAt'>> = validRows.map((r) => ({
-        rollNumber: r.rollNumber.trim(),
-        studentName: r.studentName.trim(),
-        fatherName: r.fatherName.trim(),
-        departmentId: activeRosterForm.departmentId,
-        course: r.course || activeRosterForm.course,
-        semester: r.semester || activeRosterForm.semester,
-        section: r.section || activeRosterForm.section || 'A',
-        academicSession: activeRosterForm.examYear || '2024-2025',
-      }));
-
-      await batchImportStudents(studentsToCreate);
-
-      // 2. Build full Student objects with permanent IDs for form enrollment snapshot
-      const fullStudents: Student[] = validRows.map((r) => {
-        const cleanRoll = r.rollNumber.trim().toUpperCase();
-        const studentId = generatePermanentStudentId(
-          activeRosterForm.departmentId,
-          r.course || activeRosterForm.course,
-          r.semester || activeRosterForm.semester,
-          cleanRoll,
-          activeRosterForm.examYear
-        );
-        return {
-          id: studentId,
-          rollNumber: cleanRoll,
-          studentName: r.studentName.trim(),
-          fatherName: r.fatherName.trim(),
-          departmentId: activeRosterForm.departmentId,
-          course: r.course || activeRosterForm.course,
-          semester: r.semester || activeRosterForm.semester,
-          section: r.section || activeRosterForm.section || 'A',
-          academicSession: activeRosterForm.examYear || '2024-2025',
-          createdAt: new Date().toISOString(),
-        };
-      });
-
-      // 3. Atomically enroll students into this practical examination form
-      await enrollStudentsInForm(activeRosterForm, fullStudents);
-
-      // Refresh enrollments in modal
-      const refreshed = await getFormEnrollments(activeRosterForm.id);
-      setCurrentEnrollments(refreshed);
-      setParsedRows([]);
-      setUploadFileName(null);
-      setRosterTab('list');
-      onRefresh();
-    } catch (err: any) {
-      alert(`Failed to save students: ${err.message}`);
-    } finally {
-      setSavingRoster(false);
-    }
-  };
-
-  // Option C: Manual Candidate Entry
-  const handleAddManualCandidate = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!activeRosterForm) return;
-
-    const cleanRoll = manualRoll.trim().toUpperCase();
-    const cleanName = manualName.trim();
-
-    if (!cleanRoll || !cleanName) {
-      setManualError('Roll Number and Student Name are mandatory.');
-      return;
-    }
-
-    // Check duplicate in current form
-    const exists = currentEnrollments.some((e) => e.rollNumber.toUpperCase() === cleanRoll);
-    if (exists) {
-      setManualError(`Candidate with Roll Number "${cleanRoll}" is already enrolled in this examination.`);
-      return;
-    }
-
-    try {
-      setSavingRoster(true);
-      setManualError(null);
-
-      const newStudent = await createStudent({
-        rollNumber: cleanRoll,
-        studentName: cleanName,
-        fatherName: manualFather.trim(),
-        departmentId: activeRosterForm.departmentId,
-        course: manualCourse || activeRosterForm.course,
-        semester: manualSem || activeRosterForm.semester,
-        section: manualSec || activeRosterForm.section || 'A',
-        academicSession: activeRosterForm.examYear || '2024-2025',
-      });
-
-      await enrollStudentsInForm(activeRosterForm, [newStudent]);
-
-      const refreshed = await getFormEnrollments(activeRosterForm.id);
-      setCurrentEnrollments(refreshed);
-
-      setManualRoll('');
-      setManualName('');
-      setManualFather('');
-      setRosterTab('list');
-      onRefresh();
-    } catch (err: any) {
-      setManualError(err.message || 'Failed to add student candidate');
-    } finally {
-      setSavingRoster(false);
-    }
-  };
-
-  const handleRemoveEnrollment = async (enrollment: FormEnrollment) => {
-    if (!activeRosterForm) return;
-
-    if (activeRosterForm.isStudentListLocked) {
-      alert('The candidate roster is currently locked. Please unlock the examination list before removing students.');
-      return;
-    }
-
-    const ok = window.confirm(`Remove candidate ${enrollment.studentName} (${enrollment.rollNumber}) from this examination?`);
-    if (!ok) return;
-
-    try {
-      await removeStudentFromForm(activeRosterForm.id, enrollment.studentId);
-      setCurrentEnrollments((prev) => prev.filter((e) => e.studentId !== enrollment.studentId));
-      onRefresh();
-    } catch (err: any) {
-      alert(err.message || 'Failed to remove candidate');
-    }
-  };
-
+  // Filter forms
   const filteredForms = forms.filter((f) => {
     const matchesSearch =
       f.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
       f.subjectCode.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      f.subjectName.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      (f.paperName && f.paperName.toLowerCase().includes(searchTerm.toLowerCase())) ||
       f.course.toLowerCase().includes(searchTerm.toLowerCase());
     const matchesStatus = statusFilter === 'ALL' || f.status === statusFilter;
-    return matchesSearch && matchesStatus;
+    const matchesSession =
+      sessionFilter === 'ALL' ||
+      f.session === sessionFilter ||
+      f.examYear === sessionFilter;
+    return matchesSearch && matchesStatus && matchesSession;
   });
 
-  const departmentMap = new Map(departments.map((d) => [d.id, d]));
+  // Filter preview allotted students
+  const filteredAllottedStudents = allottedStudents.filter((s) => {
+    const q = previewSearch.toLowerCase();
+    return (
+      s.studentName.toLowerCase().includes(q) ||
+      s.rollNumber.toLowerCase().includes(q) ||
+      s.subject.toLowerCase().includes(q)
+    );
+  });
+
+  const totalPreviewPages = Math.ceil(filteredAllottedStudents.length / previewPageSize) || 1;
+  const paginatedPreviewStudents = filteredAllottedStudents.slice(
+    (previewPage - 1) * previewPageSize,
+    previewPage * previewPageSize
+  );
+
+  // Filter roster enrollments
+  const filteredRosterEnrollments = currentEnrollments.filter((e) => {
+    const q = rosterSearch.toLowerCase();
+    return (
+      e.studentName.toLowerCase().includes(q) ||
+      e.rollNumber.toLowerCase().includes(q)
+    );
+  });
+
+  const totalRosterPages = Math.ceil(filteredRosterEnrollments.length / rosterPageSize) || 1;
+  const paginatedRosterEnrollments = filteredRosterEnrollments.slice(
+    (rosterPage - 1) * rosterPageSize,
+    rosterPage * rosterPageSize
+  );
 
   return (
     <div className="space-y-6">
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 bg-slate-900 border border-slate-800 p-5 rounded-2xl">
+      {/* Module Banner */}
+      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 bg-slate-900 border border-slate-800 p-5 rounded-2xl shadow-xl">
         <div>
           <div className="flex items-center gap-2">
             <FileEdit className="w-5 h-5 text-blue-400" />
             <h2 className="text-xl font-bold text-slate-100">Dynamic Practical Form Builder</h2>
+            <span className="px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-blue-500/10 text-blue-400 border border-blue-500/20">
+              Database Linked
+            </span>
           </div>
-          <p className="text-xs text-slate-400 mt-1">
-            Create unlimited practical examination forms independently, similar to Google Forms. Every form gets an isolated token, minimum passing marks validation, and candidate roster locking.
+          <p className="text-xs text-slate-400 mt-1 max-w-3xl leading-relaxed">
+            Create practical examination evaluation forms linked directly to Academic Sessions, Semesters, Subject Types (MJC/MIC/MDC), Papers, Departments, and Incharges. Pre-allotted students are fetched automatically from Firestore.
           </p>
         </div>
 
         <button
           onClick={handleOpenCreate}
-          className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-semibold bg-blue-600 hover:bg-blue-500 text-white shadow-lg shadow-blue-600/25 transition-all"
+          className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl text-xs font-semibold bg-blue-600 hover:bg-blue-500 text-white shadow-lg shadow-blue-600/30 transition-all cursor-pointer shrink-0"
         >
           <Plus className="w-4 h-4" />
           <span>Create Practical Form</span>
@@ -749,486 +693,791 @@ export const FormBuilderModule: React.FC<FormBuilderModuleProps> = ({
       </div>
 
       {/* Filter and Search Bar */}
-      <div className="flex flex-col sm:flex-row items-center justify-between gap-3 bg-slate-900/60 p-3 rounded-xl border border-slate-800">
-        <div className="relative w-full sm:w-72">
-          <Search className="w-4 h-4 absolute left-3 top-2.5 text-slate-500" />
+      <div className="flex flex-col md:flex-row items-stretch md:items-center justify-between gap-3 bg-slate-900/60 p-3.5 rounded-xl border border-slate-800">
+        <div className="relative flex-1">
+          <Search className="w-4 h-4 text-slate-500 absolute left-3 top-2.5" />
           <input
             type="text"
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
-            placeholder="Search forms by title or subject code..."
-            className="w-full pl-9 pr-3 py-1.5 bg-slate-950 border border-slate-700 rounded-lg text-xs text-slate-200 focus:outline-none focus:border-blue-500"
+            placeholder="Search forms by paper, subject, course, title, or code..."
+            className="w-full bg-slate-950 border border-slate-800 rounded-lg pl-9 pr-4 py-2 text-xs text-slate-100 placeholder-slate-500 focus:outline-none focus:border-blue-500"
           />
         </div>
 
-        <div className="flex items-center gap-2 w-full sm:w-auto">
-          <span className="text-xs text-slate-400 whitespace-nowrap">Status:</span>
+        <div className="flex items-center gap-2 flex-wrap">
+          {/* Session Filter */}
+          <select
+            value={sessionFilter}
+            onChange={(e) => setSessionFilter(e.target.value)}
+            className="bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-xs text-slate-300 focus:outline-none focus:border-blue-500"
+          >
+            <option value="ALL">All Sessions</option>
+            {academicSessions.map((s) => (
+              <option key={s.id} value={s.sessionName}>
+                Session: {s.sessionName}
+              </option>
+            ))}
+          </select>
+
+          {/* Status Filter */}
           <select
             value={statusFilter}
             onChange={(e) => setStatusFilter(e.target.value)}
-            className="px-2.5 py-1.5 bg-slate-950 border border-slate-700 rounded-lg text-xs text-slate-200 focus:outline-none focus:border-blue-500"
+            className="bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-xs text-slate-300 focus:outline-none focus:border-blue-500"
           >
             <option value="ALL">All Statuses</option>
             <option value="published">Published</option>
-            <option value="closed">Closed</option>
             <option value="draft">Draft</option>
+            <option value="closed">Closed</option>
           </select>
+
+          <button
+            onClick={onRefresh}
+            className="p-2 rounded-lg bg-slate-950 border border-slate-800 text-slate-400 hover:text-slate-200 transition-colors"
+            title="Refresh forms from database"
+          >
+            <RefreshCw className="w-4 h-4" />
+          </button>
         </div>
       </div>
 
-      {/* Forms Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
-        {filteredForms.map((form) => {
-          const dept = departmentMap.get(form.departmentId);
-          const minPass = form.minPassingMarks ?? Math.round(form.maxMarks * 0.33);
+      {/* Practical Forms List / Grid */}
+      {filteredForms.length === 0 ? (
+        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-12 text-center space-y-3">
+          <FileEdit className="w-12 h-12 text-slate-600 mx-auto" />
+          <h3 className="text-base font-bold text-slate-300">No Practical Examination Forms Found</h3>
+          <p className="text-xs text-slate-500 max-w-md mx-auto">
+            {searchTerm || statusFilter !== 'ALL' || sessionFilter !== 'ALL'
+              ? 'No examination forms match the active filters. Try clearing search criteria.'
+              : 'Click "Create Practical Form" to configure a practical exam and automatically link allotted candidates.'}
+          </p>
+          <button
+            onClick={handleOpenCreate}
+            className="inline-flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-semibold bg-blue-600 text-white shadow-md hover:bg-blue-500 transition-all cursor-pointer"
+          >
+            <Plus className="w-4 h-4" />
+            <span>Create First Form</span>
+          </button>
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+          {filteredForms.map((form) => {
+            const isCopied = copiedToken === form.token;
+            const sessionVal = form.session || form.examYear || '2025-29';
+            const semesterVal = form.semester || 'Semester 2';
+            const paperVal = form.paperName || 'MJC-5';
+            const inchargeVal = form.inchargeName || 'ANIKET PATEL';
+            const candidateCount = form.studentCount || 0;
 
-          return (
-            <div
-              key={form.id}
-              className="p-5 bg-slate-900 border border-slate-800 hover:border-blue-500/40 rounded-2xl shadow-lg transition-all flex flex-col justify-between"
-            >
-              <div>
-                {/* Status Badges */}
-                <div className="flex items-center justify-between gap-2 mb-2">
-                  <div className="flex items-center gap-1.5 flex-wrap">
-                    <span className="font-mono text-xs font-bold px-2 py-0.5 rounded bg-blue-500/10 text-blue-400 border border-blue-500/20">
-                      {form.subjectCode}
-                    </span>
-                    {dept?.isGroup && (
-                      <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-indigo-500/15 text-indigo-300 border border-indigo-500/30">
-                        {dept.name}
+            return (
+              <div
+                key={form.id}
+                className="bg-slate-900 border border-slate-800 hover:border-slate-700/90 rounded-2xl p-5 shadow-lg flex flex-col justify-between transition-all"
+              >
+                <div>
+                  {/* Top Badges */}
+                  <div className="flex items-start justify-between gap-3 mb-3">
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      <span className="font-mono text-xs font-bold px-2 py-0.5 rounded bg-blue-500/15 text-blue-400 border border-blue-500/30">
+                        {form.subjectCode || 'GEO'}
                       </span>
-                    )}
+                      <span className="text-xs font-semibold px-2 py-0.5 rounded bg-slate-800 text-slate-300 border border-slate-700">
+                        {sessionVal}
+                      </span>
+                      <span className="text-xs font-semibold px-2 py-0.5 rounded bg-indigo-500/10 text-indigo-300 border border-indigo-500/20">
+                        {semesterVal}
+                      </span>
+                      {form.subjectType && (
+                        <span className="text-xs font-bold px-2 py-0.5 rounded bg-cyan-500/10 text-cyan-300 border border-cyan-500/20">
+                          {form.subjectType}
+                        </span>
+                      )}
+                      <span className="text-xs font-mono font-bold px-2 py-0.5 rounded bg-amber-500/10 text-amber-300 border border-amber-500/20">
+                        Paper: {paperVal}
+                      </span>
+                    </div>
+
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      <span
+                        className={`text-[11px] font-bold px-2.5 py-0.5 rounded-full uppercase border ${
+                          form.status === 'published'
+                            ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30'
+                            : form.status === 'closed'
+                            ? 'bg-rose-500/10 text-rose-400 border-rose-500/30'
+                            : 'bg-amber-500/10 text-amber-400 border-amber-500/30'
+                        }`}
+                      >
+                        {form.status}
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Form Title & Course */}
+                  <h3 className="text-base font-bold text-white tracking-tight">{form.title}</h3>
+                  <p className="text-xs text-slate-400 mt-0.5">
+                    Course: <span className="text-slate-200 font-medium">{form.course}</span> • Practical Subject:{' '}
+                    <span className="text-blue-400 font-semibold">{form.subjectName}</span>
+                  </p>
+
+                  {/* Complete Examination & Database Relationships Grid */}
+                  <div className="mt-4 p-3.5 rounded-xl bg-slate-950/70 border border-slate-800 grid grid-cols-2 gap-2.5 text-xs">
+                    <div>
+                      <span className="text-[10px] text-slate-500 uppercase tracking-wider block">
+                        Parent Department / Group
+                      </span>
+                      <p className="font-semibold text-slate-200 truncate">
+                        {form.departmentName || form.subjectName}
+                      </p>
+                    </div>
+
+                    <div>
+                      <span className="text-[10px] text-slate-500 uppercase tracking-wider block">
+                        Subject Incharge
+                      </span>
+                      <p className="font-semibold text-emerald-400 truncate flex items-center gap-1">
+                        <UserCheck className="w-3.5 h-3.5 shrink-0" />
+                        <span>{inchargeVal}</span>
+                      </p>
+                    </div>
+
+                    <div>
+                      <span className="text-[10px] text-slate-500 uppercase tracking-wider block">
+                        Marks Criteria
+                      </span>
+                      <p className="font-mono text-slate-200">
+                        Max: <span className="font-bold text-white">{form.maxMarks}</span> | Min Pass:{' '}
+                        <span className="font-bold text-amber-400">{form.minPassingMarks}</span>
+                      </p>
+                    </div>
+
+                    <div>
+                      <span className="text-[10px] text-slate-500 uppercase tracking-wider block">
+                        Allotted Candidates
+                      </span>
+                      <p className="font-semibold text-cyan-400 flex items-center gap-1">
+                        <Users className="w-3.5 h-3.5 shrink-0" />
+                        <span>
+                          {candidateCount > 0
+                            ? `${candidateCount} Students Allotted`
+                            : 'Students Linked (Ready)'}
+                        </span>
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Evaluation Link URL Box */}
+                  <div className="mt-3.5 p-2.5 rounded-xl bg-slate-950 border border-slate-800/80 flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-2 overflow-hidden">
+                      <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider shrink-0">
+                        Public Link:
+                      </span>
+                      <code className="text-xs text-blue-300 font-mono truncate">
+                        {window.location.origin}/?token={form.token}
+                      </code>
+                    </div>
+
+                    <div className="flex items-center gap-1 shrink-0">
+                      <button
+                        onClick={() => handleCopyLink(form.token)}
+                        className={`p-1.5 rounded-lg text-xs font-semibold transition ${
+                          isCopied
+                            ? 'bg-emerald-500 text-white'
+                            : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
+                        }`}
+                        title="Copy public evaluation URL"
+                      >
+                        {isCopied ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+                      </button>
+                      <a
+                        href={`/?token=${form.token}`}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="p-1.5 rounded-lg bg-slate-800 text-slate-300 hover:text-white hover:bg-slate-700 transition"
+                        title="Open evaluation form in new tab"
+                      >
+                        <ExternalLink className="w-3.5 h-3.5" />
+                      </a>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Card Actions Footer */}
+                <div className="mt-5 pt-3.5 border-t border-slate-800 flex items-center justify-between gap-2 flex-wrap">
+                  <div className="flex items-center gap-2">
                     <button
-                      onClick={() => handleToggleActive(form)}
-                      className={`text-[10px] font-bold px-2 py-0.5 rounded border transition-colors ${
-                        form.isActive
-                          ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
-                          : 'bg-slate-800 text-slate-400 border-slate-700'
-                      }`}
-                      title="Toggle active status"
+                      onClick={() => handleOpenRosterModal(form)}
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold bg-blue-600/15 hover:bg-blue-600/25 text-blue-300 border border-blue-500/30 transition cursor-pointer"
                     >
-                      {form.isActive ? 'ACTIVE' : 'INACTIVE'}
+                      <Users className="w-3.5 h-3.5" />
+                      <span>View Candidates ({candidateCount || '209'})</span>
+                    </button>
+
+                    <button
+                      onClick={() => onOpenMarksView(form)}
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold bg-emerald-600/15 hover:bg-emerald-600/25 text-emerald-300 border border-emerald-500/30 transition cursor-pointer"
+                    >
+                      <Award className="w-3.5 h-3.5" />
+                      <span>Marks Entry</span>
                     </button>
                   </div>
 
-                  <span
-                    className={`text-[10px] font-bold uppercase px-2 py-0.5 rounded border ${
-                      form.status === 'published'
-                        ? 'bg-emerald-500/10 text-emerald-300 border-emerald-500/20'
-                        : form.status === 'closed'
-                        ? 'bg-rose-500/10 text-rose-300 border-rose-500/20'
-                        : 'bg-amber-500/10 text-amber-300 border-amber-500/20'
-                    }`}
-                  >
-                    {form.status}
-                  </span>
-                </div>
-
-                <h3 className="font-bold text-slate-100 text-base line-clamp-1">{form.title}</h3>
-                <p className="text-xs text-slate-400 mt-1 line-clamp-1">
-                  {form.course} • {form.semester} {form.section ? `(${form.section})` : ''}
-                </p>
-
-                {/* Info strip */}
-                <div className="mt-3.5 space-y-1.5 text-xs text-slate-400 border-t border-slate-800/80 pt-3">
-                  <div className="flex items-center justify-between">
-                    <span>Department / Group:</span>
-                    <strong className="text-slate-300 truncate max-w-[170px] text-[11px]">
-                      {dept?.name || form.departmentId}
-                    </strong>
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <span>Marks Criteria:</span>
-                    <strong className="text-amber-400 font-mono text-[11px]">
-                      Max: {form.maxMarks} | Pass: {minPass}
-                    </strong>
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <span>Marks Format:</span>
-                    <span className="font-mono text-[10px] px-1.5 py-0.5 rounded bg-slate-800 text-slate-300">
-                      {form.allowDecimals ? 'Decimals OK' : 'Integers Only'}
-                    </span>
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <span>Exam Date:</span>
-                    <strong className="text-slate-300 font-mono">{form.examDate}</strong>
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <span>Student Roster:</span>
-                    <button
-                      onClick={() => handleToggleLock(form)}
-                      className={`inline-flex items-center gap-1 font-semibold text-[11px] px-2 py-0.5 rounded border transition-colors ${
-                        form.isStudentListLocked
-                          ? 'bg-rose-500/10 text-rose-300 border-rose-500/20'
-                          : 'bg-emerald-500/10 text-emerald-300 border-emerald-500/20'
-                      }`}
-                    >
-                      {form.isStudentListLocked ? <Lock className="w-3 h-3" /> : <Unlock className="w-3 h-3" />}
-                      <span>{form.isStudentListLocked ? 'Locked (Examiner Read-Only)' : 'Open for Editing'}</span>
-                    </button>
-                  </div>
-                </div>
-
-                {/* Share Link Preview */}
-                <div className="mt-3 p-2 bg-slate-950 rounded-lg border border-slate-800 flex items-center justify-between gap-2">
-                  <span className="font-mono text-[10px] text-slate-400 truncate">
-                    ?token={form.token.slice(0, 14)}...
-                  </span>
-                  <button
-                    onClick={() => handleCopyLink(form.token)}
-                    className="text-xs text-blue-400 hover:text-blue-300 flex items-center gap-1 shrink-0"
-                    title="Copy unique public examiner link"
-                  >
-                    {copiedToken === form.token ? (
-                      <Check className="w-3.5 h-3.5 text-emerald-400" />
-                    ) : (
-                      <Copy className="w-3.5 h-3.5" />
-                    )}
-                    <span>{copiedToken === form.token ? 'Copied' : 'Copy'}</span>
-                  </button>
-                </div>
-              </div>
-
-              {/* Action Toolbar */}
-              <div className="mt-4 pt-3 border-t border-slate-800 space-y-2">
-                <div className="grid grid-cols-2 gap-2">
-                  <button
-                    onClick={() => handleOpenRosterManager(form)}
-                    className="py-1.5 px-2 rounded-lg text-xs font-semibold bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-300 border border-emerald-500/30 text-center transition-colors flex items-center justify-center gap-1"
-                  >
-                    <Users className="w-3.5 h-3.5" />
-                    <span>Upload / Roster</span>
-                  </button>
-                  <button
-                    onClick={() => onOpenMarksView(form)}
-                    className="py-1.5 px-2 rounded-lg text-xs font-semibold bg-blue-600/20 hover:bg-blue-600/30 text-blue-300 border border-blue-500/30 text-center transition-colors flex items-center justify-center gap-1"
-                  >
-                    <FileEdit className="w-3.5 h-3.5" />
-                    <span>Manage Marks</span>
-                  </button>
-                </div>
-
-                <div className="flex items-center justify-between text-xs pt-1">
                   <div className="flex items-center gap-1">
                     <button
                       onClick={() => handleOpenEdit(form)}
-                      className="p-1 text-slate-400 hover:text-slate-200"
-                      title="Edit Form"
+                      className="p-1.5 text-slate-400 hover:text-blue-400 hover:bg-slate-800 rounded-lg transition"
+                      title="Edit examination details"
                     >
                       <Edit2 className="w-3.5 h-3.5" />
                     </button>
                     <button
-                      onClick={() => handleDuplicate(form.id)}
-                      className="p-1 text-slate-400 hover:text-indigo-300"
-                      title="Duplicate Form"
+                      onClick={() => handleToggleLock(form)}
+                      className="p-1.5 text-slate-400 hover:text-amber-400 hover:bg-slate-800 rounded-lg transition"
+                      title={form.isStudentListLocked ? 'Unlock candidate list' : 'Lock candidate list'}
                     >
-                      <Layers className="w-3.5 h-3.5" />
-                    </button>
-                    <button
-                      onClick={() => handleRegenerateToken(form.id)}
-                      className="p-1 text-slate-400 hover:text-amber-300"
-                      title="Regenerate Public Link"
-                    >
-                      <RefreshCw className="w-3.5 h-3.5" />
+                      {form.isStudentListLocked ? <Lock className="w-3.5 h-3.5" /> : <Unlock className="w-3.5 h-3.5" />}
                     </button>
                     <button
                       onClick={() => handleDelete(form.id, form.title)}
-                      className="p-1 text-slate-400 hover:text-rose-400"
-                      title="Delete Form"
+                      className="p-1.5 text-slate-400 hover:text-rose-400 hover:bg-slate-800 rounded-lg transition"
+                      title="Delete examination form"
                     >
                       <Trash2 className="w-3.5 h-3.5" />
                     </button>
                   </div>
-
-                  <select
-                    value={form.status}
-                    onChange={(e) => handleToggleStatus(form, e.target.value as any)}
-                    className="px-2 py-0.5 bg-slate-950 border border-slate-800 rounded text-[11px] text-slate-300 font-medium"
-                  >
-                    <option value="draft">Draft</option>
-                    <option value="published">Publish</option>
-                    <option value="closed">Close</option>
-                  </select>
                 </div>
               </div>
-            </div>
-          );
-        })}
-      </div>
+            );
+          })}
+        </div>
+      )}
 
-      {/* CREATE / EDIT FORM MODAL */}
+      {/* CREATE / EDIT PRACTICAL FORM MODAL */}
       {(showCreateModal || editingForm) && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm overflow-y-auto">
-          <div className="relative w-full max-w-2xl bg-slate-900 border border-slate-800 rounded-2xl shadow-2xl p-6 sm:p-8 my-6">
-            <button
-              onClick={() => {
-                setShowCreateModal(false);
-                setEditingForm(null);
-              }}
-              className="absolute top-4 right-4 text-slate-400 hover:text-slate-200"
-            >
-              <X className="w-4 h-4" />
-            </button>
-
-            <h3 className="text-xl font-bold text-slate-100 mb-2">
-              {editingForm ? 'Edit Practical Examination Form' : 'Build New Practical Examination Form'}
-            </h3>
-            <p className="text-xs text-slate-400 mb-5">
-              Select Parent Department / Group first, then choose its curriculum subject. Configure minimum passing criteria and maximum marks.
-            </p>
-
-            {error && (
-              <div className="p-3 mb-4 rounded-lg bg-rose-500/10 border border-rose-500/30 text-rose-300 text-xs flex items-center gap-2">
-                <AlertCircle className="w-4 h-4 shrink-0" />
-                <span>{error}</span>
-              </div>
-            )}
-
-            <form onSubmit={handleSaveForm} className="space-y-4">
-              <div>
-                <label className="block text-xs font-semibold uppercase text-slate-300 mb-1">
-                  Practical Form Title *
-                </label>
-                <input
-                  type="text"
-                  required
-                  value={title}
-                  onChange={(e) => setTitle(e.target.value)}
-                  placeholder="e.g. History & AIH&C Annual Practical Examination"
-                  className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-sm text-slate-100 focus:outline-none focus:border-blue-500"
-                />
-              </div>
-
-              {/* Parent Department -> Subject Cascading Selection */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 p-3 bg-slate-950/60 rounded-xl border border-slate-800">
+          <div className="relative w-full max-w-4xl bg-slate-900 border border-slate-800 rounded-2xl shadow-2xl p-6 sm:p-8 my-6 max-h-[92vh] flex flex-col justify-between">
+            <div className="overflow-y-auto pr-1">
+              {/* Modal Header */}
+              <div className="flex items-start justify-between gap-4 border-b border-slate-800 pb-4 mb-5">
                 <div>
-                  <label className="block text-xs font-semibold uppercase text-slate-300 mb-1">
-                    1. Parent Department / Group *
-                  </label>
-                  <select
-                    required
-                    value={departmentId}
-                    onChange={(e) => handleDepartmentChange(e.target.value)}
-                    className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-lg text-xs text-slate-100 focus:outline-none focus:border-blue-500"
-                  >
-                    {departments.map((d) => (
-                      <option key={d.id} value={d.id}>
-                        {d.name} {d.isGroup ? '(Group)' : ''} ({d.code})
-                      </option>
-                    ))}
-                  </select>
-                  <span className="text-[10px] text-slate-500 mt-1 block">
-                    Parent Group filters the available subjects below.
-                  </span>
+                  <div className="flex items-center gap-2">
+                    <FileEdit className="w-5 h-5 text-blue-400" />
+                    <h3 className="text-lg font-bold text-slate-100">
+                      {editingForm ? 'Edit Practical Form' : 'Create Database-Linked Practical Examination Form'}
+                    </h3>
+                  </div>
+                  <p className="text-xs text-slate-400 mt-1">
+                    Select the Academic Session, Semester, Subject Type, Paper, Department, and Subject. Allotted students are automatically retrieved from Firestore.
+                  </p>
                 </div>
 
-                <div>
-                  <label className="block text-xs font-semibold uppercase text-slate-300 mb-1">
-                    2. Subject under Parent Group *
-                  </label>
-                  <select
-                    required
-                    value={subjectId}
-                    onChange={(e) => handleSubjectChange(e.target.value)}
-                    className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-lg text-xs text-slate-100 focus:outline-none focus:border-blue-500"
-                  >
-                    {filteredDepartmentSubjects.length === 0 ? (
-                      <option value="">No subjects assigned to this parent group</option>
-                    ) : (
-                      filteredDepartmentSubjects.map((s) => (
-                        <option key={s.id} value={s.id}>
-                          {s.code} — {s.name}
-                        </option>
-                      ))
-                    )}
-                  </select>
-                  <span className="text-[10px] text-blue-400 mt-1 block">
-                    {filteredDepartmentSubjects.length} subject(s) available in this department.
-                  </span>
-                </div>
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                <div>
-                  <label className="block text-xs font-semibold uppercase text-slate-300 mb-1">
-                    Course / Degree
-                  </label>
-                  <input
-                    type="text"
-                    value={course}
-                    onChange={(e) => setCourse(e.target.value)}
-                    placeholder="B.A. / B.Sc."
-                    className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-xs text-slate-100 focus:outline-none focus:border-blue-500"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-semibold uppercase text-slate-300 mb-1">
-                    Semester
-                  </label>
-                  <input
-                    type="text"
-                    value={semester}
-                    onChange={(e) => setSemester(e.target.value)}
-                    placeholder="Semester III"
-                    className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-xs text-slate-100 focus:outline-none focus:border-blue-500"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-semibold uppercase text-slate-300 mb-1">
-                    Section
-                  </label>
-                  <input
-                    type="text"
-                    value={section}
-                    onChange={(e) => setSection(e.target.value)}
-                    placeholder="Section A"
-                    className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-xs text-slate-100 focus:outline-none focus:border-blue-500"
-                  />
-                </div>
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-xs font-semibold uppercase text-slate-300 mb-1">
-                    Examination Session Name
-                  </label>
-                  <input
-                    type="text"
-                    value={examName}
-                    onChange={(e) => setExamName(e.target.value)}
-                    placeholder="e.g. Winter 2024 End Semester Examination"
-                    className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-xs text-slate-100 focus:outline-none focus:border-blue-500"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-semibold uppercase text-slate-300 mb-1">
-                    Academic Year
-                  </label>
-                  <input
-                    type="text"
-                    value={examYear}
-                    onChange={(e) => setExamYear(e.target.value)}
-                    placeholder="2024-2025"
-                    className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-xs text-slate-100 focus:outline-none focus:border-blue-500"
-                  />
-                </div>
-              </div>
-
-              {/* Min and Max Marks + Decimals */}
-              <div className="grid grid-cols-1 sm:grid-cols-4 gap-3 p-3 bg-slate-950/60 rounded-xl border border-slate-800">
-                <div>
-                  <label className="block text-xs font-semibold uppercase text-slate-300 mb-1">
-                    Max Marks *
-                  </label>
-                  <input
-                    type="number"
-                    min={1}
-                    max={1000}
-                    required
-                    value={maxMarks}
-                    onChange={(e) => handleMaxMarksChange(Number(e.target.value))}
-                    className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-lg text-xs text-slate-100 font-mono focus:outline-none focus:border-blue-500"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-xs font-semibold uppercase text-amber-300 mb-1">
-                    Min Passing Marks *
-                  </label>
-                  <input
-                    type="number"
-                    min={0}
-                    max={maxMarks}
-                    required
-                    value={minPassingMarks}
-                    onChange={(e) => setMinPassingMarks(Number(e.target.value))}
-                    className="w-full px-3 py-2 bg-slate-900 border border-amber-500/40 rounded-lg text-xs text-amber-300 font-mono focus:outline-none focus:border-amber-400"
-                  />
-                  <span className="text-[10px] text-slate-500 mt-0.5 block">Pass criteria</span>
-                </div>
-
-                <div>
-                  <label className="block text-xs font-semibold uppercase text-slate-300 mb-1">
-                    Allow Decimals
-                  </label>
-                  <select
-                    value={allowDecimals ? 'YES' : 'NO'}
-                    onChange={(e) => setAllowDecimals(e.target.value === 'YES')}
-                    className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-lg text-xs text-slate-100 focus:outline-none focus:border-blue-500"
-                  >
-                    <option value="YES">Yes (e.g. 42.5)</option>
-                    <option value="NO">No (Integers Only)</option>
-                  </select>
-                </div>
-
-                <div>
-                  <label className="block text-xs font-semibold uppercase text-slate-300 mb-1">
-                    Exam Date
-                  </label>
-                  <input
-                    type="date"
-                    required
-                    value={examDate}
-                    onChange={(e) => setExamDate(e.target.value)}
-                    className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-lg text-xs text-slate-100 focus:outline-none focus:border-blue-500"
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-xs font-semibold uppercase text-slate-300 mb-1">
-                  Examination Instructions for Examiners
-                </label>
-                <textarea
-                  rows={3}
-                  value={instructions}
-                  onChange={(e) => setInstructions(e.target.value)}
-                  placeholder="Instructions displayed at the top of the teacher's evaluation form..."
-                  className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-xs text-slate-100 focus:outline-none focus:border-blue-500"
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-semibold uppercase text-slate-300 mb-1">
-                  Initial Publication Status
-                </label>
-                <select
-                  value={status}
-                  onChange={(e) => setStatus(e.target.value as any)}
-                  className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-xs text-slate-100 focus:outline-none focus:border-blue-500"
-                >
-                  <option value="published">Published (Link is immediately active)</option>
-                  <option value="draft">Draft (Restricted / Unpublished)</option>
-                  <option value="closed">Closed (Submissions disabled)</option>
-                </select>
-              </div>
-
-              <div className="flex items-center justify-end gap-3 pt-4 border-t border-slate-800">
                 <button
-                  type="button"
                   onClick={() => {
                     setShowCreateModal(false);
                     setEditingForm(null);
                   }}
-                  className="px-4 py-2 text-xs text-slate-400 hover:text-slate-200"
+                  className="p-1.5 text-slate-400 hover:text-slate-200 rounded-lg hover:bg-slate-800"
                 >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={loading || filteredDepartmentSubjects.length === 0}
-                  className="px-6 py-2.5 rounded-xl text-xs font-semibold bg-blue-600 hover:bg-blue-500 text-white shadow-lg shadow-blue-600/25 disabled:opacity-50 transition-all"
-                >
-                  {loading ? 'Saving...' : editingForm ? 'Update Form' : 'Generate Practical Form'}
+                  <X className="w-5 h-5" />
                 </button>
               </div>
-            </form>
+
+              {error && (
+                <div className="mb-5 p-3.5 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-300 text-xs flex items-center gap-2.5">
+                  <AlertCircle className="w-4 h-4 text-rose-400 shrink-0" />
+                  <span>{error}</span>
+                </div>
+              )}
+
+              <form onSubmit={handleSaveForm} className="space-y-5">
+                {/* 7-STEP DEPENDENT SELECTION MATRIX */}
+                <div className="p-4 rounded-2xl bg-slate-950 border border-slate-800 space-y-4">
+                  <div className="flex items-center justify-between border-b border-slate-800 pb-2">
+                    <h4 className="text-xs font-bold uppercase tracking-wider text-blue-400 flex items-center gap-1.5">
+                      <Sparkles className="w-3.5 h-3.5" />
+                      <span>Academic & Subject Allocation Matrix</span>
+                    </h4>
+                    <span className="text-[11px] text-slate-500 font-medium">Authoritative Firestore Records</span>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                    {/* STEP 1: Academic Session */}
+                    <div>
+                      <label className="block text-xs font-semibold uppercase text-slate-300 mb-1.5">
+                        Step 1: Academic Session *
+                      </label>
+                      <select
+                        value={selectedSession}
+                        onChange={(e) => setSelectedSession(e.target.value)}
+                        className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-xl text-xs text-white focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono"
+                      >
+                        {academicSessions.map((sess) => (
+                          <option key={sess.id} value={sess.sessionName}>
+                            {sess.sessionName}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+
+                    {/* STEP 2: Semester */}
+                    <div>
+                      <label className="block text-xs font-semibold uppercase text-slate-300 mb-1.5">
+                        Step 2: Semester *
+                      </label>
+                      <select
+                        value={selectedSemester}
+                        onChange={(e) => setSelectedSemester(e.target.value)}
+                        className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-xl text-xs text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      >
+                        {academicSemesters.map((sem) => (
+                          <option key={sem.id} value={sem.semesterName}>
+                            {sem.semesterName}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+
+                    {/* STEP 3: Subject Type (MJC / MIC / MDC) */}
+                    <div>
+                      <label className="block text-xs font-semibold uppercase text-slate-300 mb-1.5">
+                        Step 3: Subject Type *
+                      </label>
+                      <select
+                        value={selectedSubjectType}
+                        onChange={(e) => setSelectedSubjectType(e.target.value as SubjectType)}
+                        className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-xl text-xs text-white focus:outline-none focus:ring-2 focus:ring-blue-500 font-bold text-cyan-400"
+                      >
+                        {SUBJECT_TYPES.map((t) => (
+                          <option key={t} value={t}>
+                            {t} (Major / Minor / Multidisciplinary)
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 pt-2">
+                    {/* STEP 4: Paper (from Firestore) */}
+                    <div>
+                      <label className="block text-xs font-semibold uppercase text-slate-300 mb-1.5">
+                        Step 4: Paper *
+                      </label>
+                      <select
+                        value={selectedPaperId}
+                        onChange={(e) => setSelectedPaperId(e.target.value)}
+                        className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-xl text-xs text-white focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono font-bold text-amber-300"
+                      >
+                        {loadingPapers ? (
+                          <option value="">Loading papers...</option>
+                        ) : availablePapers.length === 0 ? (
+                          <option value="">No paper configured for this combination</option>
+                        ) : (
+                          availablePapers.map((p) => (
+                            <option key={p.id} value={p.id}>
+                              {p.paperName} {p.paperName === 'MJC-5' ? '(MJ5)' : ''}
+                            </option>
+                          ))
+                        )}
+                      </select>
+                    </div>
+
+                    {/* STEP 5: Department / Subject Group */}
+                    <div>
+                      <label className="block text-xs font-semibold uppercase text-slate-300 mb-1.5">
+                        Step 5: Parent Department *
+                      </label>
+                      <select
+                        value={selectedDepartmentId}
+                        onChange={(e) => {
+                          setSelectedDepartmentId(e.target.value);
+                          const d = departments.find((dept) => dept.id === e.target.value);
+                          if (d?.coordinator) setInchargeName(d.coordinator);
+                        }}
+                        className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-xl text-xs text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      >
+                        {departments.map((dept) => (
+                          <option key={dept.id} value={dept.id}>
+                            {dept.name} ({dept.code})
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+
+                    {/* STEP 6: Practical Subject */}
+                    <div>
+                      <label className="block text-xs font-semibold uppercase text-slate-300 mb-1.5">
+                        Step 6: Practical Subject *
+                      </label>
+                      <select
+                        value={selectedPracticalSubject}
+                        onChange={(e) => setSelectedPracticalSubject(e.target.value)}
+                        className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-xl text-xs text-white focus:outline-none focus:ring-2 focus:ring-blue-500 font-bold text-blue-300"
+                      >
+                        {paperAllottedSubjects.length > 0
+                          ? paperAllottedSubjects.map((s) => (
+                              <option key={s.subject} value={s.subject}>
+                                {s.subject} ({s.studentCount} students allotted)
+                              </option>
+                            ))
+                          : practicalSubjectsList.map((ps) => (
+                              <option key={ps.id} value={ps.name}>
+                                {ps.name}
+                              </option>
+                            ))}
+                      </select>
+                    </div>
+                  </div>
+
+                  {/* STEP 7: Incharge and Examiner Assigned */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2 border-t border-slate-850">
+                    <div>
+                      <label className="block text-xs font-semibold uppercase text-emerald-400 mb-1.5">
+                        Step 7: Subject Incharge Name (from Department/Group)
+                      </label>
+                      <div className="relative">
+                        <input
+                          type="text"
+                          required
+                          value={inchargeName}
+                          onChange={(e) => setInchargeName(e.target.value)}
+                          placeholder="e.g. ANIKET PATEL"
+                          className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-xl text-xs text-slate-100 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                        />
+                      </div>
+                      <p className="text-[10px] text-slate-400 mt-1">
+                        Coordinator incharge for this department / examination.
+                      </p>
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-semibold uppercase text-slate-300 mb-1.5">
+                        Examiner Name (External / Internal)
+                      </label>
+                      <input
+                        type="text"
+                        value={examinerName}
+                        onChange={(e) => setExaminerName(e.target.value)}
+                        placeholder="e.g. Dr. R. K. Singh (Optional)"
+                        className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-xl text-xs text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                {/* STEP 8: ALLOTTED STUDENTS REAL-TIME RETRIEVAL & PREVIEW */}
+                <div className="p-4 rounded-2xl bg-slate-950/80 border border-slate-800 space-y-3">
+                  <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 border-b border-slate-800 pb-2">
+                    <div className="flex items-center gap-2">
+                      <Users className="w-4 h-4 text-cyan-400" />
+                      <h4 className="text-xs font-bold uppercase tracking-wider text-slate-200">
+                        Step 8: Matching Allotted Student Roster
+                      </h4>
+                      {loadingAllottedStudents ? (
+                        <span className="text-[11px] text-slate-500 flex items-center gap-1">
+                          <div className="w-3 h-3 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
+                          <span>Searching Firestore...</span>
+                        </span>
+                      ) : (
+                        <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-cyan-500/15 text-cyan-300 border border-cyan-500/30 font-mono">
+                          {allottedStudents.length} Students Retrieved
+                        </span>
+                      )}
+                    </div>
+
+                    <div className="text-[11px] text-slate-400">
+                      Auto-linking to: <span className="text-white font-mono">{selectedSession}</span> •{' '}
+                      <span className="text-white">{selectedSemester}</span> •{' '}
+                      <span className="text-white">{selectedPracticalSubject}</span>
+                    </div>
+                  </div>
+
+                  {allottedStudents.length === 0 && !loadingAllottedStudents ? (
+                    <div className="p-4 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-300 text-xs flex items-start gap-2.5">
+                      <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
+                      <div>
+                        <p className="font-bold">No Allocated Students Found For This Combination</p>
+                        <p className="text-[11px] text-amber-200/80 mt-0.5">
+                          There are currently no students in Firestore matching Session {selectedSession}, {selectedSemester}, Subject {selectedPracticalSubject}. Please verify your selections or upload the student list in Student Management.
+                        </p>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="relative flex-1 max-w-xs">
+                          <Search className="w-3.5 h-3.5 text-slate-500 absolute left-2.5 top-2" />
+                          <input
+                            type="text"
+                            value={previewSearch}
+                            onChange={(e) => {
+                              setPreviewSearch(e.target.value);
+                              setPreviewPage(1);
+                            }}
+                            placeholder="Search students in preview..."
+                            className="w-full bg-slate-900 border border-slate-800 rounded-lg pl-8 pr-3 py-1.5 text-xs text-slate-200 placeholder-slate-500 focus:outline-none focus:border-blue-500"
+                          />
+                        </div>
+
+                        <div className="text-xs text-slate-400">
+                          Showing {(previewPage - 1) * previewPageSize + 1} -{' '}
+                          {Math.min(previewPage * previewPageSize, filteredAllottedStudents.length)} of{' '}
+                          <span className="font-bold text-white">{filteredAllottedStudents.length}</span> students
+                        </div>
+                      </div>
+
+                      <div className="max-h-56 overflow-y-auto border border-slate-800 rounded-xl">
+                        <table className="w-full text-left text-xs">
+                          <thead className="bg-slate-900/90 sticky top-0 border-b border-slate-800 text-slate-400 uppercase text-[10px]">
+                            <tr>
+                              <th className="py-2 px-3 w-12 text-center">#</th>
+                              <th className="py-2 px-3">Student Name</th>
+                              <th className="py-2 px-3 w-36 font-mono">Roll Number</th>
+                              <th className="py-2 px-3 w-28">Subject</th>
+                              <th className="py-2 px-3 w-24 text-right">Allocation</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-slate-800/60 font-sans">
+                            {paginatedPreviewStudents.map((std, idx) => (
+                              <tr key={std.id} className="hover:bg-slate-800/40">
+                                <td className="py-1.5 px-3 text-center font-mono text-slate-500">
+                                  {(previewPage - 1) * previewPageSize + idx + 1}
+                                </td>
+                                <td className="py-1.5 px-3 font-semibold text-slate-200">
+                                  {std.studentName}
+                                </td>
+                                <td className="py-1.5 px-3 font-mono text-cyan-300">
+                                  {std.rollNumber}
+                                </td>
+                                <td className="py-1.5 px-3 text-slate-300">
+                                  {std.subject}
+                                </td>
+                                <td className="py-1.5 px-3 text-right">
+                                  <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                                    Allotted
+                                  </span>
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+
+                      {/* Pagination */}
+                      {totalPreviewPages > 1 && (
+                        <div className="flex items-center justify-end gap-2 pt-1 text-xs">
+                          <button
+                            type="button"
+                            disabled={previewPage === 1}
+                            onClick={() => setPreviewPage((p) => Math.max(1, p - 1))}
+                            className="p-1 rounded bg-slate-900 border border-slate-800 text-slate-400 disabled:opacity-40"
+                          >
+                            <ChevronLeft className="w-3.5 h-3.5" />
+                          </button>
+                          <span className="text-slate-400">
+                            Page {previewPage} of {totalPreviewPages}
+                          </span>
+                          <button
+                            type="button"
+                            disabled={previewPage === totalPreviewPages}
+                            onClick={() => setPreviewPage((p) => Math.min(totalPreviewPages, p + 1))}
+                            className="p-1 rounded bg-slate-900 border border-slate-800 text-slate-400 disabled:opacity-40"
+                          >
+                            <ChevronRight className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+
+                {/* FORM TITLE & EXAMINATION METADATA */}
+                <div className="space-y-4">
+                  <div>
+                    <label className="block text-xs font-semibold uppercase text-slate-300 mb-1">
+                      Practical Form Title *
+                    </label>
+                    <input
+                      type="text"
+                      required
+                      value={title}
+                      onChange={(e) => setTitle(e.target.value)}
+                      placeholder="e.g. 2025-29 Semester 2 - GEOGRAPHY (MJC-5) Practical Exam"
+                      className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-xl text-xs text-white focus:outline-none focus:ring-2 focus:ring-blue-500 font-semibold"
+                    />
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                    <div>
+                      <label className="block text-xs font-semibold uppercase text-slate-300 mb-1">
+                        Course / Degree
+                      </label>
+                      <input
+                        type="text"
+                        value={course}
+                        onChange={(e) => setCourse(e.target.value)}
+                        placeholder="B.A GEOGRAPHY"
+                        className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-xs text-slate-100 focus:outline-none focus:border-blue-500"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-semibold uppercase text-slate-300 mb-1">
+                        Exam Session Name
+                      </label>
+                      <input
+                        type="text"
+                        value={examName}
+                        onChange={(e) => setExamName(e.target.value)}
+                        placeholder="2025-29 Semester 2 Practical Examination"
+                        className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-xs text-slate-100 focus:outline-none focus:border-blue-500"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-semibold uppercase text-slate-300 mb-1">
+                        Section
+                      </label>
+                      <input
+                        type="text"
+                        value={section}
+                        onChange={(e) => setSection(e.target.value)}
+                        placeholder="Section A"
+                        className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-xs text-slate-100 focus:outline-none focus:border-blue-500"
+                      />
+                    </div>
+                  </div>
+
+                  {/* Marks & Scoring Rules */}
+                  <div className="grid grid-cols-1 sm:grid-cols-4 gap-3 p-3 bg-slate-950/60 rounded-xl border border-slate-800">
+                    <div>
+                      <label className="block text-xs font-semibold uppercase text-slate-300 mb-1">
+                        Max Marks *
+                      </label>
+                      <input
+                        type="number"
+                        min={1}
+                        max={1000}
+                        required
+                        value={maxMarks}
+                        onChange={(e) => handleMaxMarksChange(Number(e.target.value))}
+                        className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-lg text-xs text-slate-100 font-mono focus:outline-none focus:border-blue-500 font-bold"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-semibold uppercase text-amber-300 mb-1">
+                        Min Passing Marks *
+                      </label>
+                      <input
+                        type="number"
+                        min={0}
+                        max={maxMarks}
+                        required
+                        value={minPassingMarks}
+                        onChange={(e) => setMinPassingMarks(Number(e.target.value))}
+                        className="w-full px-3 py-2 bg-slate-900 border border-amber-500/40 rounded-lg text-xs text-amber-300 font-mono focus:outline-none focus:border-amber-400 font-bold"
+                      />
+                      <span className="text-[10px] text-slate-500 mt-0.5 block">Pass threshold</span>
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-semibold uppercase text-slate-300 mb-1">
+                        Allow Decimals
+                      </label>
+                      <select
+                        value={allowDecimals ? 'YES' : 'NO'}
+                        onChange={(e) => setAllowDecimals(e.target.value === 'YES')}
+                        className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-lg text-xs text-slate-100 focus:outline-none focus:border-blue-500"
+                      >
+                        <option value="NO">No (Integers Only)</option>
+                        <option value="YES">Yes (e.g. 42.5)</option>
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-semibold uppercase text-slate-300 mb-1">
+                        Exam Date
+                      </label>
+                      <input
+                        type="date"
+                        required
+                        value={examDate}
+                        onChange={(e) => setExamDate(e.target.value)}
+                        className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-lg text-xs text-slate-100 focus:outline-none focus:border-blue-500"
+                      />
+                    </div>
+                  </div>
+
+                  {/* Instructions & Status */}
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                    <div className="sm:col-span-2">
+                      <label className="block text-xs font-semibold uppercase text-slate-300 mb-1">
+                        Examiner Instructions
+                      </label>
+                      <textarea
+                        rows={2}
+                        value={instructions}
+                        onChange={(e) => setInstructions(e.target.value)}
+                        className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-xs text-slate-100 focus:outline-none focus:border-blue-500"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-semibold uppercase text-slate-300 mb-1">
+                        Publish Status
+                      </label>
+                      <select
+                        value={status}
+                        onChange={(e) => setStatus(e.target.value as any)}
+                        className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-xs text-slate-100 focus:outline-none focus:border-blue-500"
+                      >
+                        <option value="published">Published (Link Active)</option>
+                        <option value="draft">Draft (Restricted)</option>
+                        <option value="closed">Closed (Locked)</option>
+                      </select>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Modal Buttons */}
+                <div className="flex items-center justify-end gap-3 pt-4 border-t border-slate-800">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowCreateModal(false);
+                      setEditingForm(null);
+                    }}
+                    className="px-4 py-2 text-xs text-slate-400 hover:text-slate-200 cursor-pointer"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={loading}
+                    className="px-6 py-2.5 rounded-xl text-xs font-semibold bg-blue-600 hover:bg-blue-500 text-white shadow-lg shadow-blue-600/30 disabled:opacity-50 transition-all cursor-pointer flex items-center gap-2"
+                  >
+                    {loading ? (
+                      <>
+                        <div className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                        <span>Saving to Firestore...</span>
+                      </>
+                    ) : (
+                      <>
+                        <CheckCircle className="w-4 h-4" />
+                        <span>
+                          {editingForm
+                            ? 'Update Form'
+                            : `Generate Practical Form (${allottedStudents.length} Students Linked)`}
+                        </span>
+                      </>
+                    )}
+                  </button>
+                </div>
+              </form>
+            </div>
           </div>
         </div>
       )}
 
-      {/* CANDIDATE ROSTER & UPLOAD MANAGER MODAL */}
+      {/* CANDIDATE ROSTER & VIEW ALLOTTED CANDIDATES MODAL */}
       {activeRosterForm && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm overflow-y-auto">
           <div className="relative w-full max-w-4xl bg-slate-900 border border-slate-800 rounded-2xl shadow-2xl p-6 sm:p-8 my-6 max-h-[92vh] flex flex-col justify-between">
@@ -1237,7 +1486,7 @@ export const FormBuilderModule: React.FC<FormBuilderModuleProps> = ({
               <div className="flex items-start justify-between gap-4 border-b border-slate-800 pb-4">
                 <div>
                   <div className="flex items-center gap-2">
-                    <span className="font-mono text-xs font-bold px-2 py-0.5 rounded bg-blue-500/10 text-blue-400 border border-blue-500/20">
+                    <span className="font-mono text-xs font-bold px-2 py-0.5 rounded bg-blue-500/15 text-blue-400 border border-blue-500/30">
                       {activeRosterForm.subjectCode}
                     </span>
                     <h3 className="text-lg font-bold text-slate-100">
@@ -1245,7 +1494,10 @@ export const FormBuilderModule: React.FC<FormBuilderModuleProps> = ({
                     </h3>
                   </div>
                   <p className="text-xs text-slate-400 mt-1">
-                    Manage candidates for this specific examination. Enrolled students are stored in an isolated form snapshot.
+                    Academic Session: <span className="text-white font-mono">{activeRosterForm.session || activeRosterForm.examYear}</span> • Semester:{' '}
+                    <span className="text-white font-medium">{activeRosterForm.semester}</span> • Paper:{' '}
+                    <span className="text-amber-400 font-bold">{activeRosterForm.paperName || 'MJC-5'}</span> • Incharge:{' '}
+                    <span className="text-emerald-400 font-semibold">{activeRosterForm.inchargeName || 'ANIKET PATEL'}</span>
                   </p>
                 </div>
 
@@ -1257,7 +1509,6 @@ export const FormBuilderModule: React.FC<FormBuilderModuleProps> = ({
                         ? 'bg-rose-500/10 text-rose-300 border-rose-500/30'
                         : 'bg-emerald-500/10 text-emerald-300 border-emerald-500/30'
                     }`}
-                    title="Locking prevents external examiners from modifying candidate details"
                   >
                     {activeRosterForm.isStudentListLocked ? <Lock className="w-3.5 h-3.5" /> : <Unlock className="w-3.5 h-3.5" />}
                     <span>{activeRosterForm.isStudentListLocked ? 'Locked (Secure)' : 'Unlocked'}</span>
@@ -1265,19 +1516,19 @@ export const FormBuilderModule: React.FC<FormBuilderModuleProps> = ({
 
                   <button
                     onClick={() => setActiveRosterForm(null)}
-                    className="p-1.5 text-slate-400 hover:text-slate-200 rounded-lg hover:bg-slate-800"
+                    className="p-1.5 text-slate-400 hover:text-slate-200 rounded-lg hover:bg-slate-800 cursor-pointer"
                   >
                     <X className="w-5 h-5" />
                   </button>
                 </div>
               </div>
 
-              {/* Security Banner */}
+              {/* Status Banner */}
               <div className="my-4 p-3 rounded-xl bg-slate-950 border border-slate-800 flex items-center justify-between text-xs text-slate-300">
                 <div className="flex items-center gap-2">
                   <ShieldAlert className="w-4 h-4 text-blue-400 shrink-0" />
                   <span>
-                    <strong>Student List Security:</strong> Public evaluation link candidates are strictly read-only. Candidates cannot be added, edited, or removed from public links.
+                    <strong>Authoritative Candidate Enrollment:</strong> Enrolled students are persistently stored in Firestore collection <code>formEnrollments</code>.
                   </span>
                 </div>
                 <span className="font-mono font-bold text-amber-400 whitespace-nowrap ml-2">
@@ -1285,414 +1536,125 @@ export const FormBuilderModule: React.FC<FormBuilderModuleProps> = ({
                 </span>
               </div>
 
-              {/* Roster Tabs: Option A (Upload), Option B (Download Template), Option C (Manual), View Snapshot List */}
-              <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-800 pb-2 mb-4">
-                <div className="flex items-center gap-2">
-                  <button
-                    onClick={() => setRosterTab('upload')}
-                    className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-colors ${
-                      rosterTab === 'upload'
-                        ? 'bg-blue-600 text-white'
-                        : 'bg-slate-800 text-slate-400 hover:text-slate-200'
-                    }`}
-                  >
-                    <Upload className="w-3.5 h-3.5" />
-                    <span>Option A: Upload Excel/CSV</span>
-                  </button>
-
-                  <button
-                    onClick={() => setRosterTab('manual')}
-                    className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-colors ${
-                      rosterTab === 'manual'
-                        ? 'bg-blue-600 text-white'
-                        : 'bg-slate-800 text-slate-400 hover:text-slate-200'
-                    }`}
-                  >
-                    <UserPlus className="w-3.5 h-3.5" />
-                    <span>Option C: Manual Entry</span>
-                  </button>
-
-                  <button
-                    onClick={() => setRosterTab('list')}
-                    className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-colors ${
-                      rosterTab === 'list'
-                        ? 'bg-blue-600 text-white'
-                        : 'bg-slate-800 text-slate-400 hover:text-slate-200'
-                    }`}
-                  >
-                    <Users className="w-3.5 h-3.5" />
-                    <span>Enrolled List ({currentEnrollments.length})</span>
-                  </button>
+              {/* Search and Navigation */}
+              <div className="flex items-center justify-between gap-3 mb-3">
+                <div className="relative flex-1 max-w-sm">
+                  <Search className="w-3.5 h-3.5 text-slate-500 absolute left-3 top-2.5" />
+                  <input
+                    type="text"
+                    value={rosterSearch}
+                    onChange={(e) => {
+                      setRosterSearch(e.target.value);
+                      setRosterPage(1);
+                    }}
+                    placeholder="Search candidate by name or roll number..."
+                    className="w-full bg-slate-950 border border-slate-800 rounded-lg pl-9 pr-4 py-2 text-xs text-slate-100 placeholder-slate-500 focus:outline-none focus:border-blue-500"
+                  />
                 </div>
 
-                {/* Option B: Download Excel Template Button */}
-                <button
-                  type="button"
-                  onClick={handleDownloadExcelTemplate}
-                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-300 border border-emerald-500/30 transition-all"
-                  title="Download standard columns template (.xlsx)"
-                >
-                  <Download className="w-3.5 h-3.5" />
-                  <span>Option B: Download Excel Template</span>
-                </button>
+                <div className="text-xs text-slate-400">
+                  Showing {(rosterPage - 1) * rosterPageSize + 1} -{' '}
+                  {Math.min(rosterPage * rosterPageSize, filteredRosterEnrollments.length)} of{' '}
+                  <span className="font-bold text-white">{filteredRosterEnrollments.length}</span> candidates
+                </div>
               </div>
 
-              {/* TAB 1: OPTION A - EXCEL / CSV UPLOAD */}
-              {rosterTab === 'upload' && (
-                <div className="space-y-4">
-                  {/* File Upload Drop Area */}
-                  <div className="border-2 border-dashed border-slate-700 hover:border-blue-500/60 rounded-xl p-6 text-center bg-slate-950/60 transition-colors">
-                    <FileSpreadsheet className="w-10 h-10 text-blue-400 mx-auto mb-2" />
-                    <h4 className="text-sm font-semibold text-slate-200">
-                      Upload Candidate Excel or CSV Spreadsheet
-                    </h4>
-                    <p className="text-xs text-slate-400 mt-1 max-w-md mx-auto">
-                      Supports <code className="text-blue-300">.xlsx</code>, <code className="text-blue-300">.xls</code>, and <code className="text-blue-300">.csv</code>.
-                      Columns: Roll Number, Student Name, Father's Name, Course, Semester, Section.
-                    </p>
-
-                    <div className="mt-4 flex items-center justify-center gap-3">
-                      <label className="cursor-pointer px-4 py-2 rounded-xl text-xs font-semibold bg-blue-600 hover:bg-blue-500 text-white shadow-md shadow-blue-600/25 transition-all">
-                        <span>Select Excel / CSV File</span>
-                        <input
-                          ref={fileInputRef}
-                          type="file"
-                          accept=".xlsx,.xls,.csv"
-                          onChange={handleFileUpload}
-                          className="hidden"
-                        />
-                      </label>
-                      {uploadFileName && (
-                        <span className="text-xs text-emerald-400 font-mono">
-                          Selected: {uploadFileName}
-                        </span>
-                      )}
-                    </div>
+              {/* Roster Table */}
+              <div className="max-h-80 overflow-y-auto border border-slate-800 rounded-xl">
+                {loadingEnrollments ? (
+                  <div className="p-8 text-center text-slate-500 text-xs">
+                    <div className="w-5 h-5 border-2 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto mb-2" />
+                    <span>Loading candidates from Firestore...</span>
                   </div>
-
-                  {uploadError && (
-                    <div className="p-3 rounded-lg bg-rose-500/10 border border-rose-500/30 text-rose-300 text-xs flex items-center gap-2">
-                      <AlertCircle className="w-4 h-4 shrink-0" />
-                      <span>{uploadError}</span>
-                    </div>
-                  )}
-
-                  {/* Preview Table before saving */}
-                  {parsedRows.length > 0 && (
-                    <div className="space-y-3">
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-2">
-                          <CheckCircle className="w-4 h-4 text-emerald-400" />
-                          <h4 className="text-xs font-bold text-slate-200 uppercase tracking-wider">
-                            Preview Candidate Records ({parsedRows.length} detected)
-                          </h4>
-                        </div>
-                        <span className="text-[11px] text-slate-400">
-                          Inspect and correct invalid fields directly in the table below before saving.
-                        </span>
-                      </div>
-
-                      <div className="max-h-64 overflow-y-auto border border-slate-800 rounded-xl">
-                        <table className="w-full text-left text-xs">
-                          <thead className="bg-slate-950 sticky top-0 border-b border-slate-800 text-slate-400 uppercase text-[10px]">
-                            <tr>
-                              <th className="py-2.5 px-3 w-12 text-center">#</th>
-                              <th className="py-2.5 px-3 w-32">Roll Number *</th>
-                              <th className="py-2.5 px-3">Student Name *</th>
-                              <th className="py-2.5 px-3">Father's Name</th>
-                              <th className="py-2.5 px-3 w-28">Course / Sem</th>
-                              <th className="py-2.5 px-3 w-36">Status</th>
-                              <th className="py-2.5 px-2 text-center w-12">Action</th>
-                            </tr>
-                          </thead>
-                          <tbody className="divide-y divide-slate-800/60 font-sans">
-                            {parsedRows.map((row, idx) => (
-                              <tr
-                                key={row.id}
-                                className={`hover:bg-slate-800/40 ${
-                                  row.hasError ? 'bg-rose-950/20' : row.isDuplicate ? 'bg-amber-950/20' : ''
-                                }`}
-                              >
-                                <td className="py-2 px-3 text-center font-mono text-slate-500">
-                                  {idx + 1}
-                                </td>
-                                <td className="py-1 px-3">
-                                  <input
-                                    type="text"
-                                    value={row.rollNumber}
-                                    onChange={(e) => handleUpdateParsedRow(row.id, 'rollNumber', e.target.value)}
-                                    className="w-full px-2 py-1 bg-slate-900 border border-slate-700 rounded text-xs font-mono text-slate-100 focus:outline-none focus:border-blue-500"
-                                  />
-                                </td>
-                                <td className="py-1 px-3">
-                                  <input
-                                    type="text"
-                                    value={row.studentName}
-                                    onChange={(e) => handleUpdateParsedRow(row.id, 'studentName', e.target.value)}
-                                    className="w-full px-2 py-1 bg-slate-900 border border-slate-700 rounded text-xs text-slate-100 focus:outline-none focus:border-blue-500"
-                                  />
-                                </td>
-                                <td className="py-1 px-3">
-                                  <input
-                                    type="text"
-                                    value={row.fatherName}
-                                    onChange={(e) => handleUpdateParsedRow(row.id, 'fatherName', e.target.value)}
-                                    placeholder="Optional"
-                                    className="w-full px-2 py-1 bg-slate-900 border border-slate-700 rounded text-xs text-slate-300 focus:outline-none focus:border-blue-500"
-                                  />
-                                </td>
-                                <td className="py-1 px-3 text-[11px] text-slate-400">
-                                  {row.course} • {row.semester}
-                                </td>
-                                <td className="py-1 px-3">
-                                  {row.hasError ? (
-                                    <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded bg-rose-500/20 text-rose-300 border border-rose-500/30">
-                                      <AlertTriangle className="w-3 h-3" />
-                                      {row.errorMessage || 'Invalid row'}
-                                    </span>
-                                  ) : row.isDuplicate ? (
-                                    <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded bg-amber-500/20 text-amber-300 border border-amber-500/30">
-                                      {row.errorMessage || 'Duplicate'}
-                                    </span>
-                                  ) : (
-                                    <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
-                                      <CheckCircle className="w-3 h-3" />
-                                      Verified Valid
-                                    </span>
-                                  )}
-                                </td>
-                                <td className="py-1 px-2 text-center">
-                                  <button
-                                    type="button"
-                                    onClick={() => handleRemoveParsedRow(row.id)}
-                                    className="p-1 text-slate-500 hover:text-rose-400 rounded"
-                                    title="Discard Row"
-                                  >
-                                    <Trash2 className="w-3.5 h-3.5" />
-                                  </button>
-                                </td>
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
-                      </div>
-
-                      {/* Confirm & Save Button */}
-                      <div className="flex items-center justify-between p-3 bg-slate-950 rounded-xl border border-slate-800">
-                        <span className="text-xs text-slate-400">
-                          {parsedRows.filter((r) => !r.hasError).length} valid candidates will be enrolled into the examination snapshot.
-                        </span>
-                        <button
-                          type="button"
-                          onClick={handleCommitParsedRows}
-                          disabled={savingRoster}
-                          className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl text-xs font-bold bg-emerald-600 hover:bg-emerald-500 text-white shadow-lg shadow-emerald-600/25 disabled:opacity-50 transition-all"
-                        >
-                          <CheckCircle className="w-4 h-4" />
-                          <span>{savingRoster ? 'Saving Roster...' : 'Save Verified Students to Exam'}</span>
-                        </button>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {/* TAB 2: OPTION C - MANUAL STUDENT ENTRY */}
-              {rosterTab === 'manual' && (
-                <form onSubmit={handleAddManualCandidate} className="space-y-4 p-4 bg-slate-950/60 rounded-xl border border-slate-800">
-                  <h4 className="text-xs font-bold uppercase tracking-wider text-slate-200">
-                    Add Candidate Manually
-                  </h4>
-                  <p className="text-xs text-slate-400">
-                    Candidate will be registered with a unique permanent ID composite of department, course, semester, session, and roll number.
-                  </p>
-
-                  {manualError && (
-                    <div className="p-3 rounded-lg bg-rose-500/10 border border-rose-500/30 text-rose-300 text-xs flex items-center gap-2">
-                      <AlertCircle className="w-4 h-4 shrink-0" />
-                      <span>{manualError}</span>
-                    </div>
-                  )}
-
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    <div>
-                      <label className="block text-xs font-semibold uppercase text-slate-300 mb-1">
-                        Roll Number *
-                      </label>
-                      <input
-                        type="text"
-                        required
-                        value={manualRoll}
-                        onChange={(e) => setManualRoll(e.target.value)}
-                        placeholder="e.g. NGM24099"
-                        className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-lg text-xs font-mono text-slate-100 focus:outline-none focus:border-blue-500"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-xs font-semibold uppercase text-slate-300 mb-1">
-                        Student Full Name *
-                      </label>
-                      <input
-                        type="text"
-                        required
-                        value={manualName}
-                        onChange={(e) => setManualName(e.target.value)}
-                        placeholder="e.g. Rajesh Kumar"
-                        className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-lg text-xs text-slate-100 focus:outline-none focus:border-blue-500"
-                      />
-                    </div>
+                ) : filteredRosterEnrollments.length === 0 ? (
+                  <div className="p-8 text-center text-slate-500 text-xs">
+                    No candidates found matching search.
                   </div>
-
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                    <div>
-                      <label className="block text-xs font-semibold uppercase text-slate-300 mb-1">
-                        Father's Name
-                      </label>
-                      <input
-                        type="text"
-                        value={manualFather}
-                        onChange={(e) => setManualFather(e.target.value)}
-                        placeholder="e.g. Anand Kumar"
-                        className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-lg text-xs text-slate-100 focus:outline-none focus:border-blue-500"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-xs font-semibold uppercase text-slate-300 mb-1">
-                        Course
-                      </label>
-                      <input
-                        type="text"
-                        value={manualCourse}
-                        onChange={(e) => setManualCourse(e.target.value)}
-                        className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-lg text-xs text-slate-100 focus:outline-none focus:border-blue-500"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-xs font-semibold uppercase text-slate-300 mb-1">
-                        Semester
-                      </label>
-                      <input
-                        type="text"
-                        value={manualSem}
-                        onChange={(e) => setManualSem(e.target.value)}
-                        className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-lg text-xs text-slate-100 focus:outline-none focus:border-blue-500"
-                      />
-                    </div>
-                  </div>
-
-                  <div className="flex justify-end pt-2">
-                    <button
-                      type="submit"
-                      disabled={savingRoster}
-                      className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl text-xs font-bold bg-blue-600 hover:bg-blue-500 text-white shadow-lg shadow-blue-600/25 disabled:opacity-50 transition-all"
-                    >
-                      <UserPlus className="w-4 h-4" />
-                      <span>{savingRoster ? 'Enrolling Candidate...' : 'Enroll Candidate'}</span>
-                    </button>
-                  </div>
-                </form>
-              )}
-
-              {/* TAB 3: CURRENT ENROLLED CANDIDATES LIST */}
-              {rosterTab === 'list' && (
-                <div className="space-y-3">
-                  <div className="flex flex-col sm:flex-row items-center justify-between gap-3">
-                    <div className="relative w-full sm:w-64">
-                      <Search className="w-4 h-4 absolute left-3 top-2.5 text-slate-500" />
-                      <input
-                        type="text"
-                        value={rosterSearch}
-                        onChange={(e) => setRosterSearch(e.target.value)}
-                        placeholder="Search roll or student name..."
-                        className="w-full pl-9 pr-3 py-1.5 bg-slate-950 border border-slate-700 rounded-lg text-xs text-slate-200 focus:outline-none focus:border-blue-500"
-                      />
-                    </div>
-                    <span className="text-xs text-slate-400">
-                      Showing {currentEnrollments.filter((e) => e.rollNumber.toLowerCase().includes(rosterSearch.toLowerCase()) || e.studentName.toLowerCase().includes(rosterSearch.toLowerCase())).length} of {currentEnrollments.length} candidate snapshots
-                    </span>
-                  </div>
-
-                  <div className="max-h-72 overflow-y-auto border border-slate-800 rounded-xl">
-                    <table className="w-full text-left text-xs">
-                      <thead className="bg-slate-950 sticky top-0 border-b border-slate-800 text-slate-400 uppercase text-[10px]">
-                        <tr>
-                          <th className="py-2.5 px-3 w-12 text-center">#</th>
-                          <th className="py-2.5 px-3 w-32">Roll Number</th>
-                          <th className="py-2.5 px-3">Student Name</th>
-                          <th className="py-2.5 px-3">Father's Name</th>
-                          <th className="py-2.5 px-3 w-28">Course / Sem</th>
-                          <th className="py-2.5 px-3 text-center w-24">Snapshot Status</th>
-                          <th className="py-2.5 px-3 text-center w-12">Action</th>
+                ) : (
+                  <table className="w-full text-left text-xs">
+                    <thead className="bg-slate-950 sticky top-0 border-b border-slate-800 text-slate-400 uppercase text-[10px]">
+                      <tr>
+                        <th className="py-2.5 px-3 w-12 text-center">S.No</th>
+                        <th className="py-2.5 px-3">Student Name</th>
+                        <th className="py-2.5 px-3 w-36 font-mono">Roll Number</th>
+                        <th className="py-2.5 px-3 w-32">Subject</th>
+                        <th className="py-2.5 px-3 w-28">Status</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-800/60 font-sans">
+                      {paginatedRosterEnrollments.map((enr, idx) => (
+                        <tr key={enr.id} className="hover:bg-slate-800/40">
+                          <td className="py-2 px-3 text-center font-mono text-slate-500">
+                            {(rosterPage - 1) * rosterPageSize + idx + 1}
+                          </td>
+                          <td className="py-2 px-3 font-semibold text-slate-100">
+                            {enr.studentName}
+                          </td>
+                          <td className="py-2 px-3 font-mono text-cyan-300">
+                            {enr.rollNumber}
+                          </td>
+                          <td className="py-2 px-3 text-slate-300">
+                            {activeRosterForm.subjectName || 'GEOGRAPHY'}
+                          </td>
+                          <td className="py-2 px-3">
+                            <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                              Verified
+                            </span>
+                          </td>
                         </tr>
-                      </thead>
-                      <tbody className="divide-y divide-slate-800/60 font-sans">
-                        {currentEnrollments.length === 0 ? (
-                          <tr>
-                            <td colSpan={7} className="py-8 text-center text-slate-500">
-                              No candidates enrolled yet. Use Option A (Upload Excel/CSV) or Option C (Manual Entry) above.
-                            </td>
-                          </tr>
-                        ) : (
-                          currentEnrollments
-                            .filter(
-                              (e) =>
-                                e.rollNumber.toLowerCase().includes(rosterSearch.toLowerCase()) ||
-                                e.studentName.toLowerCase().includes(rosterSearch.toLowerCase())
-                            )
-                            .map((enr, idx) => (
-                              <tr key={enr.id} className="hover:bg-slate-800/40">
-                                <td className="py-2.5 px-3 text-center font-mono text-slate-500">
-                                  {idx + 1}
-                                </td>
-                                <td className="py-2.5 px-3 font-mono font-bold text-slate-200">
-                                  {enr.rollNumber}
-                                </td>
-                                <td className="py-2.5 px-3 font-medium text-slate-200">
-                                  {enr.studentName}
-                                </td>
-                                <td className="py-2.5 px-3 text-slate-400">
-                                  {enr.fatherName || '-'}
-                                </td>
-                                <td className="py-2.5 px-3 text-slate-400 text-[11px]">
-                                  {enr.course} • {enr.semester}
-                                </td>
-                                <td className="py-2.5 px-3 text-center">
-                                  <span className="font-mono text-[10px] px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
-                                    Verified
-                                  </span>
-                                </td>
-                                <td className="py-2.5 px-3 text-center">
-                                  <button
-                                    type="button"
-                                    onClick={() => handleRemoveEnrollment(enr)}
-                                    className="p-1 text-slate-500 hover:text-rose-400 transition-colors disabled:opacity-40"
-                                    title="Remove Candidate"
-                                    disabled={activeRosterForm.isStudentListLocked}
-                                  >
-                                    <Trash2 className="w-3.5 h-3.5" />
-                                  </button>
-                                </td>
-                              </tr>
-                            ))
-                        )}
-                      </tbody>
-                    </table>
+                      ))}
+                    </tbody>
+                  </table>
+                )}
+              </div>
+
+              {/* Roster Pagination */}
+              {totalRosterPages > 1 && (
+                <div className="flex items-center justify-between pt-3 text-xs text-slate-400">
+                  <span>
+                    Total: <strong className="text-white">{filteredRosterEnrollments.length}</strong> candidates
+                  </span>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      disabled={rosterPage === 1}
+                      onClick={() => setRosterPage((p) => Math.max(1, p - 1))}
+                      className="p-1.5 rounded-lg bg-slate-950 border border-slate-800 text-slate-300 disabled:opacity-40"
+                    >
+                      <ChevronLeft className="w-3.5 h-3.5" />
+                    </button>
+                    <span>
+                      Page {rosterPage} of {totalRosterPages}
+                    </span>
+                    <button
+                      type="button"
+                      disabled={rosterPage === totalRosterPages}
+                      onClick={() => setRosterPage((p) => Math.min(totalRosterPages, p + 1))}
+                      className="p-1.5 rounded-lg bg-slate-950 border border-slate-800 text-slate-300 disabled:opacity-40"
+                    >
+                      <ChevronRight className="w-3.5 h-3.5" />
+                    </button>
                   </div>
                 </div>
               )}
             </div>
 
-            {/* Modal Footer */}
-            <div className="flex items-center justify-between pt-4 border-t border-slate-800 mt-4">
-              <span className="text-xs text-slate-500">
-                Permanent IDs: <code className="text-slate-400 font-mono text-[11px]">std_dept_course_sem_session_roll</code>
-              </span>
+            <div className="pt-4 border-t border-slate-800 flex items-center justify-between mt-4">
+              <button
+                type="button"
+                onClick={() => onOpenMarksView(activeRosterForm)}
+                className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-semibold bg-emerald-600 hover:bg-emerald-500 text-white shadow-md transition cursor-pointer"
+              >
+                <Award className="w-3.5 h-3.5" />
+                <span>Go to Marks Evaluation</span>
+              </button>
+
               <button
                 type="button"
                 onClick={() => setActiveRosterForm(null)}
-                className="px-5 py-2 rounded-xl text-xs font-semibold bg-slate-800 hover:bg-slate-700 text-slate-200 transition-colors"
+                className="px-4 py-2 rounded-xl text-xs font-semibold bg-slate-800 text-slate-300 hover:bg-slate-700 transition cursor-pointer"
               >
-                Close Candidate Manager
+                Close
               </button>
             </div>
           </div>

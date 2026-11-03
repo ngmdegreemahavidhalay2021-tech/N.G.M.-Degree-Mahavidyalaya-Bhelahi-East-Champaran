@@ -155,13 +155,23 @@ export interface Subject {
 export interface PracticalForm {
   id: string;
   title: string;
+  session?: string; // e.g. "2025-29"
+  sessionId?: string;
+  semester: string; // e.g. "Semester 2"
+  semesterId?: string;
+  subjectType?: SubjectType; // "MJC" | "MIC" | "MDC"
+  paperId?: string; // e.g. "paper_2025_29_Semester_2_MJC_MJC_5"
+  paperName?: string; // e.g. "MJC-5"
   departmentId: string;
-  course: string;
-  semester: string;
-  section?: string;
+  departmentName?: string;
   subjectId: string;
   subjectCode: string;
   subjectName: string;
+  inchargeName?: string; // Coordinator / Subject Incharge
+  examinerName?: string; // Internal / External Examiner
+  studentCount?: number; // Total enrolled / allotted students
+  course: string;
+  section?: string;
   examName: string;
   examYear: string;
   maxMarks: number;
