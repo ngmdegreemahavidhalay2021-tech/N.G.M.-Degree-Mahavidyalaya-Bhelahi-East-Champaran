@@ -17,6 +17,7 @@ import {
   Department,
   Subject,
   PracticalForm,
+  PracticalFormSubjectAssignment,
   Student,
   FormEnrollment,
   MarksRecord,
@@ -346,6 +347,142 @@ export async function updatePracticalForm(id: string, updates: Partial<Practical
   }
 }
 
+export function getFormActiveSubjects(form: PracticalForm): PracticalFormSubjectAssignment[] {
+  if (form.subjectAssignments && form.subjectAssignments.length > 0) {
+    const active = form.subjectAssignments.filter((s) => s.status !== 'archived');
+    if (active.length > 0) return active;
+  }
+  return [
+    {
+      subjectId: form.subjectId || 'subj_default',
+      subjectName: (form.subjectName || 'GEOGRAPHY').trim().toUpperCase(),
+      subjectCode: form.subjectCode || 'GEO',
+      departmentId: form.departmentId,
+      departmentName: form.departmentName,
+      studentCount: form.studentCount || 0,
+      status: 'active',
+      addedAt: form.createdAt || new Date().toISOString(),
+    },
+  ];
+}
+
+export async function addSubjectToPracticalForm(
+  formId: string,
+  subjectAssignment: PracticalFormSubjectAssignment,
+  studentsToEnroll?: PaperStudent[]
+): Promise<PracticalForm> {
+  try {
+    const formRef = doc(db, 'practicalForms', formId);
+    const formSnap = await getDoc(formRef);
+    if (!formSnap.exists()) throw new Error('Practical form not found');
+    const existingForm = formSnap.data() as PracticalForm;
+
+    const existingAssignments = existingForm.subjectAssignments || getFormActiveSubjects(existingForm);
+    const cleanSubj = subjectAssignment.subjectName.trim().toUpperCase();
+
+    // Check if subject already exists
+    const existingIndex = existingAssignments.findIndex(
+      (s) => s.subjectName.trim().toUpperCase() === cleanSubj
+    );
+
+    let updatedAssignments: PracticalFormSubjectAssignment[];
+    if (existingIndex >= 0) {
+      // Re-activate if was archived
+      updatedAssignments = existingAssignments.map((s, idx) =>
+        idx === existingIndex ? { ...s, ...subjectAssignment, status: 'active' as const } : s
+      );
+    } else {
+      updatedAssignments = [
+        ...existingAssignments,
+        {
+          ...subjectAssignment,
+          subjectName: cleanSubj,
+          status: 'active' as const,
+          addedAt: new Date().toISOString(),
+        },
+      ];
+    }
+
+    // Auto enroll students for this subject if provided
+    if (studentsToEnroll && studentsToEnroll.length > 0) {
+      await enrollPaperStudentsInForm(
+        { ...existingForm, id: formId, subjectName: cleanSubj },
+        studentsToEnroll,
+        cleanSubj
+      );
+    }
+
+    // Recalculate total students enrolled across all active subjects
+    const enrollmentsSnap = await getDocs(
+      query(collection(db, 'formEnrollments'), where('practicalFormId', '==', formId))
+    );
+    const totalCount = enrollmentsSnap.size;
+
+    await updateDoc(formRef, {
+      subjectAssignments: updatedAssignments,
+      studentCount: totalCount,
+      updatedAt: new Date().toISOString(),
+    });
+
+    await logActivity(
+      'SUBJECT_ADDED_TO_FORM',
+      `Assigned subject ${cleanSubj} to Practical Form "${existingForm.title}" (Incharge: ${existingForm.inchargeName || 'Incharge'})`,
+      'PracticalForm',
+      formId
+    );
+
+    const updated = await getPracticalFormById(formId);
+    return updated!;
+  } catch (err) {
+    handleFirestoreError(err, OperationType.UPDATE, `practicalForms/${formId}`);
+  }
+}
+
+export async function removeSubjectFromPracticalForm(
+  formId: string,
+  subjectName: string,
+  archiveOnly = true
+): Promise<PracticalForm> {
+  try {
+    const formRef = doc(db, 'practicalForms', formId);
+    const formSnap = await getDoc(formRef);
+    if (!formSnap.exists()) throw new Error('Practical form not found');
+    const existingForm = formSnap.data() as PracticalForm;
+
+    const cleanSubj = subjectName.trim().toUpperCase();
+    const existingAssignments = existingForm.subjectAssignments || getFormActiveSubjects(existingForm);
+
+    let updatedAssignments: PracticalFormSubjectAssignment[];
+    if (archiveOnly) {
+      // Preserve historical marks and enrollments; mark assignment archived
+      updatedAssignments = existingAssignments.map((s) =>
+        s.subjectName.trim().toUpperCase() === cleanSubj ? { ...s, status: 'archived' as const } : s
+      );
+    } else {
+      updatedAssignments = existingAssignments.filter(
+        (s) => s.subjectName.trim().toUpperCase() !== cleanSubj
+      );
+    }
+
+    await updateDoc(formRef, {
+      subjectAssignments: updatedAssignments,
+      updatedAt: new Date().toISOString(),
+    });
+
+    await logActivity(
+      'SUBJECT_REMOVED_FROM_FORM',
+      `Archived/Removed subject ${cleanSubj} from Practical Form "${existingForm.title}"`,
+      'PracticalForm',
+      formId
+    );
+
+    const updated = await getPracticalFormById(formId);
+    return updated!;
+  } catch (err) {
+    handleFirestoreError(err, OperationType.UPDATE, `practicalForms/${formId}`);
+  }
+}
+
 export async function duplicatePracticalForm(id: string): Promise<PracticalForm> {
   const existing = await getPracticalFormById(id);
   if (!existing) throw new Error('Original practical form not found');
@@ -510,12 +647,30 @@ export async function deleteStudent(id: string): Promise<void> {
 
 // ==================== FORM ENROLLMENTS ====================
 
-export async function getFormEnrollments(practicalFormId: string): Promise<FormEnrollment[]> {
+export async function getFormEnrollments(
+  practicalFormId: string,
+  subjectName?: string
+): Promise<FormEnrollment[]> {
   try {
     const q = query(collection(db, 'formEnrollments'), where('practicalFormId', '==', practicalFormId));
     const snap = await getDocs(q);
     const list: FormEnrollment[] = [];
-    snap.forEach((d) => list.push({ id: d.id, ...d.data() } as FormEnrollment));
+    const normSubj = subjectName ? subjectName.trim().toUpperCase() : null;
+
+    snap.forEach((d) => {
+      const data = d.data() as FormEnrollment;
+      const record = { ...(data as object), id: d.id } as FormEnrollment;
+      if (normSubj) {
+        if (record.subject && record.subject.trim().toUpperCase() === normSubj) {
+          list.push(record);
+        } else if (!record.subject) {
+          // Fallback if older record had no subject tag
+          list.push(record);
+        }
+      } else {
+        list.push(record);
+      }
+    });
 
     if (list.length > 0) {
       return list.sort((a, b) => a.rollNumber.localeCompare(b.rollNumber, undefined, { numeric: true }));
@@ -526,22 +681,43 @@ export async function getFormEnrollments(practicalFormId: string): Promise<FormE
     const formSnap = await getDoc(formRef);
     if (formSnap.exists()) {
       const formData = formSnap.data() as PracticalForm;
-      const matchingStudents = await getMatchingAllottedStudents({
-        session: formData.session || formData.examYear || '2025-29',
-        semester: formData.semester || 'Semester 2',
-        subjectType: formData.subjectType,
-        paperId: formData.paperId,
-        paperName: formData.paperName,
-        subject: formData.subjectName,
-      });
+      const activeSubjects = getFormActiveSubjects(formData);
 
-      if (matchingStudents.length > 0) {
-        await enrollPaperStudentsInForm({ ...formData, id: practicalFormId }, matchingStudents);
-        const refreshedSnap = await getDocs(q);
-        const refreshedList: FormEnrollment[] = [];
-        refreshedSnap.forEach((d) => refreshedList.push({ ...(d.data() as object), id: d.id } as FormEnrollment));
-        return refreshedList.sort((a, b) => a.rollNumber.localeCompare(b.rollNumber, undefined, { numeric: true }));
+      for (const subjAsgn of activeSubjects) {
+        const matchingStudents = await getMatchingAllottedStudents({
+          session: formData.session || formData.examYear || '2025-29',
+          semester: formData.semester || 'Semester 2',
+          subjectType: formData.subjectType,
+          paperId: formData.paperId,
+          paperName: formData.paperName,
+          subject: subjAsgn.subjectName,
+        });
+
+        if (matchingStudents.length > 0) {
+          await enrollPaperStudentsInForm(
+            { ...formData, id: practicalFormId, subjectName: subjAsgn.subjectName },
+            matchingStudents,
+            subjAsgn.subjectName
+          );
+        }
       }
+
+      const refreshedSnap = await getDocs(q);
+      const refreshedList: FormEnrollment[] = [];
+      refreshedSnap.forEach((d) => {
+        const data = d.data() as FormEnrollment;
+        const record = { ...(data as object), id: d.id } as FormEnrollment;
+        if (normSubj) {
+          if (record.subject && record.subject.trim().toUpperCase() === normSubj) {
+            refreshedList.push(record);
+          } else if (!record.subject) {
+            refreshedList.push(record);
+          }
+        } else {
+          refreshedList.push(record);
+        }
+      });
+      return refreshedList.sort((a, b) => a.rollNumber.localeCompare(b.rollNumber, undefined, { numeric: true }));
     }
 
     return [];
@@ -552,7 +728,8 @@ export async function getFormEnrollments(practicalFormId: string): Promise<FormE
 
 export async function enrollPaperStudentsInForm(
   practicalForm: PracticalForm,
-  paperStudents: PaperStudent[]
+  paperStudents: PaperStudent[],
+  subjectName?: string
 ): Promise<number> {
   try {
     const now = new Date().toISOString();
@@ -564,7 +741,8 @@ export async function enrollPaperStudentsInForm(
       const batch = writeBatch(db);
 
       chunk.forEach((std) => {
-        const enrollmentId = `enr_${practicalForm.id}_${std.id}`;
+        const stdSubj = (std.subject || subjectName || practicalForm.subjectName || 'PRACTICAL').trim().toUpperCase();
+        const enrollmentId = `enr_${practicalForm.id}_${stdSubj.replace(/[^a-zA-Z0-9]/g, '_')}_${std.id}`;
         const enrollment: FormEnrollment = {
           id: enrollmentId,
           practicalFormId: practicalForm.id,
@@ -573,12 +751,14 @@ export async function enrollPaperStudentsInForm(
           studentName: std.studentName,
           fatherName: std.fatherName || '',
           departmentId: practicalForm.departmentId,
-          course: practicalForm.course || `B.A ${practicalForm.subjectName}`,
+          course: practicalForm.course || `B.A ${stdSubj}`,
           semester: practicalForm.semester,
           section: std.section || practicalForm.section || 'A',
           academicSession: practicalForm.session || practicalForm.examYear || '2025-29',
           status: 'verified',
           enrolledAt: now,
+          subject: stdSubj,
+          subjectId: std.paperId || practicalForm.subjectId,
         };
         batch.set(doc(db, 'formEnrollments', enrollmentId), enrollment, { merge: true });
         count++;
@@ -588,14 +768,17 @@ export async function enrollPaperStudentsInForm(
     }
 
     // Update form studentCount atomically
+    const allEnrollmentsSnap = await getDocs(
+      query(collection(db, 'formEnrollments'), where('practicalFormId', '==', practicalForm.id))
+    );
     await updateDoc(doc(db, 'practicalForms', practicalForm.id), {
-      studentCount: count,
+      studentCount: allEnrollmentsSnap.size,
       updatedAt: now,
     });
 
     await logActivity(
       'STUDENTS_ENROLLED_IN_FORM',
-      `Auto-enrolled ${count} allotted students into practical form "${practicalForm.title}"`,
+      `Auto-enrolled ${count} allotted students into practical form "${practicalForm.title}" (${subjectName || practicalForm.subjectName})`,
       'FormEnrollment',
       practicalForm.id
     );
@@ -759,24 +942,52 @@ export async function removeStudentFromForm(practicalFormId: string, studentId: 
 
 // ==================== MARKS ====================
 
-export async function getFormMarks(practicalFormId: string): Promise<MarksRecord[]> {
+export async function getFormMarks(
+  practicalFormId: string,
+  subjectName?: string
+): Promise<MarksRecord[]> {
   try {
     const q = query(collection(db, 'marks'), where('practicalFormId', '==', practicalFormId));
     const snap = await getDocs(q);
     const list: MarksRecord[] = [];
-    snap.forEach((d) => list.push({ id: d.id, ...d.data() } as MarksRecord));
+    const normSubj = subjectName ? subjectName.trim().toUpperCase() : null;
+
+    snap.forEach((d) => {
+      const data = d.data() as MarksRecord;
+      const record = { ...(data as object), id: d.id } as MarksRecord;
+      if (normSubj) {
+        if (record.subject && record.subject.trim().toUpperCase() === normSubj) {
+          list.push(record);
+        } else if (!record.subject) {
+          // If existing marks had no subject tag, allow if evaluating primary subject
+          list.push(record);
+        }
+      } else {
+        list.push(record);
+      }
+    });
+
     return list;
   } catch (err) {
     handleFirestoreError(err, OperationType.LIST, 'marks');
   }
 }
 
-export async function saveSingleMark(record: Omit<MarksRecord, 'id' | 'updatedAt'>): Promise<void> {
-  const id = `mark_${record.practicalFormId}_${record.studentId}`;
+export async function saveSingleMark(
+  record: Omit<MarksRecord, 'id' | 'updatedAt'>,
+  subjectName?: string
+): Promise<void> {
+  const normSubj = (subjectName || record.subject || '').trim().toUpperCase();
+  const sId = record.studentId || (record as any).enrollmentId || record.rollNumber || 'unknown';
+  const id = normSubj
+    ? `mark_${record.practicalFormId}_${normSubj.replace(/[^a-zA-Z0-9]/g, '_')}_${sId}`
+    : `mark_${record.practicalFormId}_${sId}`;
   const now = new Date().toISOString();
   const data: MarksRecord = {
     ...record,
     id,
+    studentId: sId,
+    subject: normSubj || record.subject,
     updatedAt: now,
   };
 
@@ -790,43 +1001,65 @@ export async function saveSingleMark(record: Omit<MarksRecord, 'id' | 'updatedAt
 export async function saveBulkMarks(
   practicalFormId: string,
   records: Array<{
-    studentId: string;
+    studentId?: string;
+    enrollmentId?: string;
     rollNumber: string;
     studentName: string;
     marksObtained: number | null;
-    isPresent: boolean;
+    isPresent?: boolean;
     remarks?: string;
     minPassingMarks?: number;
+    subject?: string;
   }>,
-  updatedBy = 'Examiner'
+  updatedBy = 'Examiner',
+  subjectName?: string
 ): Promise<void> {
   try {
-    const batch = writeBatch(db);
+    const batchSize = 400;
     const now = new Date().toISOString();
+    const cleanSubj = (subjectName || (records[0]?.subject) || '').trim().toUpperCase();
 
-    records.forEach((r) => {
-      const id = `mark_${practicalFormId}_${r.studentId}`;
-      const minPass = r.minPassingMarks ?? 33;
-      const resultStatus = calculateResultStatus(r.marksObtained, r.isPresent, minPass);
+    for (let i = 0; i < records.length; i += batchSize) {
+      const chunk = records.slice(i, i + batchSize);
+      const batch = writeBatch(db);
 
-      const data: MarksRecord = {
-        id,
-        practicalFormId,
-        studentId: r.studentId,
-        rollNumber: r.rollNumber,
-        studentName: r.studentName,
-        marksObtained: r.isPresent ? r.marksObtained : null,
-        isPresent: r.isPresent,
-        remarks: r.remarks || '',
-        resultStatus,
-        updatedAt: now,
-        updatedBy,
-      };
-      batch.set(doc(db, 'marks', id), data, { merge: true });
-    });
+      chunk.forEach((r) => {
+        const sId = r.studentId || r.enrollmentId || r.rollNumber || 'unknown';
+        const rowSubj = (r.subject || cleanSubj || '').trim().toUpperCase();
+        const id = rowSubj
+          ? `mark_${practicalFormId}_${rowSubj.replace(/[^a-zA-Z0-9]/g, '_')}_${sId}`
+          : `mark_${practicalFormId}_${sId}`;
+        const minPass = r.minPassingMarks ?? 33;
+        const isPres = r.isPresent !== false;
+        const resultStatus = calculateResultStatus(r.marksObtained, isPres, minPass);
 
-    await batch.commit();
-    await logActivity('MARKS_BULK_SAVED', `Saved evaluation marks for ${records.length} candidates in form ${practicalFormId}`, 'MarksRecord', practicalFormId, updatedBy);
+        const data: MarksRecord = {
+          id,
+          practicalFormId,
+          studentId: sId,
+          rollNumber: r.rollNumber,
+          studentName: r.studentName,
+          subject: rowSubj || undefined,
+          marksObtained: isPres ? r.marksObtained : null,
+          isPresent: isPres,
+          remarks: r.remarks || '',
+          resultStatus,
+          updatedAt: now,
+          updatedBy,
+        };
+        batch.set(doc(db, 'marks', id), data, { merge: true });
+      });
+
+      await batch.commit();
+    }
+
+    await logActivity(
+      'MARKS_BULK_SAVED',
+      `Saved evaluation marks for ${records.length} candidates in form ${practicalFormId}${cleanSubj ? ` (${cleanSubj})` : ''}`,
+      'MarksRecord',
+      practicalFormId,
+      updatedBy
+    );
   } catch (err) {
     handleFirestoreError(err, OperationType.WRITE, 'marks/bulk');
   }

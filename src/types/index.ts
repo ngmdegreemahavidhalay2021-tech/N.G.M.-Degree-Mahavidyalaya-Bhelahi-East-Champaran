@@ -152,6 +152,17 @@ export interface Subject {
   createdAt: string;
 }
 
+export interface PracticalFormSubjectAssignment {
+  subjectId: string;
+  subjectName: string; // e.g. "GEOGRAPHY", "BOTANY", "ZOOLOGY"
+  subjectCode: string; // e.g. "GEO", "BOT", "ZOO"
+  departmentId?: string;
+  departmentName?: string;
+  studentCount?: number;
+  status: 'active' | 'archived';
+  addedAt: string;
+}
+
 export interface PracticalForm {
   id: string;
   title: string;
@@ -166,10 +177,11 @@ export interface PracticalForm {
   departmentName?: string;
   subjectId: string;
   subjectCode: string;
-  subjectName: string;
-  inchargeName?: string; // Coordinator / Subject Incharge
+  subjectName: string; // Primary subject name
+  subjectAssignments?: PracticalFormSubjectAssignment[]; // Multiple subjects assigned to this Incharge
+  inchargeName?: string; // Coordinator / Subject Incharge (e.g. "Kunal Singh")
   examinerName?: string; // Internal / External Examiner
-  studentCount?: number; // Total enrolled / allotted students
+  studentCount?: number; // Total enrolled / allotted students across active subjects
   course: string;
   section?: string;
   examName: string;
@@ -214,6 +226,8 @@ export interface FormEnrollment {
   academicSession?: string;
   status: 'enrolled' | 'verified' | 'removed';
   enrolledAt: string;
+  subject?: string; // Practical Subject name (e.g. "GEOGRAPHY", "BOTANY", "ZOOLOGY")
+  subjectId?: string;
 }
 
 export interface MarksRecord {
@@ -222,6 +236,8 @@ export interface MarksRecord {
   studentId: string;
   rollNumber: string;
   studentName: string;
+  subject?: string; // Practical Subject name (e.g. "GEOGRAPHY", "BOTANY", "ZOOLOGY")
+  subjectId?: string;
   marksObtained: number | null;
   isPresent: boolean;
   remarks?: string;

@@ -38,6 +38,7 @@ import {
 import * as XLSX from 'xlsx';
 import {
   PracticalForm,
+  PracticalFormSubjectAssignment,
   Department,
   Subject,
   FormEnrollment,
@@ -71,6 +72,9 @@ import {
   getMatchingAllottedStudents,
   getPracticalSubjects,
   normalizeSemester,
+  getFormActiveSubjects,
+  addSubjectToPracticalForm,
+  removeSubjectFromPracticalForm,
 } from '../services/collegeService';
 
 interface FormBuilderModuleProps {
@@ -127,8 +131,9 @@ export const FormBuilderModule: React.FC<FormBuilderModuleProps> = ({
     Array<{ subject: string; studentCount: number }>
   >([]);
 
-  // Selected Practical Subject and Department
-  const [selectedPracticalSubject, setSelectedPracticalSubject] = useState<string>('GEOGRAPHY');
+  // Selected Practical Subjects (Multi-select) and Department
+  const [selectedPracticalSubjects, setSelectedPracticalSubjects] = useState<string[]>(['GEOGRAPHY']);
+  const [allottedStudentsBySubject, setAllottedStudentsBySubject] = useState<Record<string, PaperStudent[]>>({});
   const [selectedDepartmentId, setSelectedDepartmentId] = useState<string>('');
   const [inchargeName, setInchargeName] = useState<string>('');
   const [examinerName, setExaminerName] = useState<string>('');
@@ -137,6 +142,7 @@ export const FormBuilderModule: React.FC<FormBuilderModuleProps> = ({
   const [allottedStudents, setAllottedStudents] = useState<PaperStudent[]>([]);
   const [loadingAllottedStudents, setLoadingAllottedStudents] = useState<boolean>(false);
   const [previewSearch, setPreviewSearch] = useState<string>('');
+  const [previewSubjectFilter, setPreviewSubjectFilter] = useState<string>('ALL');
   const [previewPage, setPreviewPage] = useState<number>(1);
   const previewPageSize = 10;
 
@@ -235,7 +241,6 @@ export const FormBuilderModule: React.FC<FormBuilderModuleProps> = ({
       setAvailablePapers(papersList || []);
 
       if (papersList && papersList.length > 0) {
-        // Auto-select first paper or retain current if matching
         const existing = papersList.find((p) => p.id === selectedPaperId);
         const targetPaper = existing || papersList[0];
         setSelectedPaperId(targetPaper.id);
@@ -243,6 +248,7 @@ export const FormBuilderModule: React.FC<FormBuilderModuleProps> = ({
         setSelectedPaperId('');
         setPaperAllottedSubjects([]);
         setAllottedStudents([]);
+        setAllottedStudentsBySubject({});
       }
     } catch (err) {
       console.warn('Error loading papers for selection:', err);
@@ -258,6 +264,7 @@ export const FormBuilderModule: React.FC<FormBuilderModuleProps> = ({
     } else {
       setPaperAllottedSubjects([]);
       setAllottedStudents([]);
+      setAllottedStudentsBySubject({});
     }
   }, [selectedPaperId]);
 
@@ -267,53 +274,62 @@ export const FormBuilderModule: React.FC<FormBuilderModuleProps> = ({
       setPaperAllottedSubjects(distinct || []);
 
       if (distinct && distinct.length > 0) {
-        // Prefer GEOGRAPHY if present
-        const hasGeo = distinct.find((d) => d.subject.toUpperCase() === 'GEOGRAPHY');
-        const defaultSubj = hasGeo ? hasGeo.subject : distinct[0].subject;
-        setSelectedPracticalSubject(defaultSubj);
+        if (selectedPracticalSubjects.length === 0) {
+          const hasGeo = distinct.find((d) => d.subject.toUpperCase() === 'GEOGRAPHY');
+          const defaultSubj = hasGeo ? hasGeo.subject : distinct[0].subject;
+          setSelectedPracticalSubjects([defaultSubj]);
+        }
       } else {
-        setSelectedPracticalSubject('GEOGRAPHY');
+        if (selectedPracticalSubjects.length === 0) {
+          setSelectedPracticalSubjects(['GEOGRAPHY']);
+        }
       }
     } catch (err) {
       console.warn('Error loading distinct subjects for paper:', err);
     }
   };
 
-  // STEP 7 & 8 DEPENDENCY: When Practical Subject changes, resolve Department, Incharge, and fetch Allotted Students
+  // STEP 7 & 8 DEPENDENCY: When Practical Subjects change, resolve Department, Incharge, and fetch Allotted Students
   useEffect(() => {
-    if (selectedPracticalSubject) {
-      resolveDepartmentAndIncharge(selectedPracticalSubject);
+    if (selectedPracticalSubjects.length > 0) {
+      resolveDepartmentAndIncharge(selectedPracticalSubjects);
       fetchAllottedStudentsForCombination();
+    } else {
+      setAllottedStudents([]);
+      setAllottedStudentsBySubject({});
     }
   }, [
     selectedSession,
     selectedSemester,
     selectedSubjectType,
     selectedPaperId,
-    selectedPracticalSubject,
+    JSON.stringify(selectedPracticalSubjects),
   ]);
 
-  const resolveDepartmentAndIncharge = (subjName: string) => {
-    const cleanSubj = subjName.trim().toUpperCase();
+  const resolveDepartmentAndIncharge = (subjectsList: string[]) => {
+    if (subjectsList.length === 0) return;
+    const primarySubj = subjectsList[0].trim().toUpperCase();
 
     // 1. Find matching Department by name or code
     const matchingDept = departments.find(
       (d) =>
-        d.name.trim().toUpperCase() === cleanSubj ||
-        (d.code && d.code.trim().toUpperCase() === cleanSubj) ||
-        (cleanSubj === 'GEOGRAPHY' && (d.code === 'GEO' || d.name.includes('GEO'))) ||
-        (cleanSubj === 'PSYCHOLOGY' && (d.code === 'PSY' || d.name.includes('PSY'))) ||
-        (cleanSubj === 'HOME SCIENCE' && (d.code === 'H.SCI' || d.name.includes('HOME')))
+        d.name.trim().toUpperCase() === primarySubj ||
+        (d.code && d.code.trim().toUpperCase() === primarySubj) ||
+        (primarySubj === 'GEOGRAPHY' && (d.code === 'GEO' || d.name.includes('GEO'))) ||
+        (primarySubj === 'BOTANY' && (d.code === 'BOT' || d.name.includes('BOT'))) ||
+        (primarySubj === 'ZOOLOGY' && (d.code === 'ZOO' || d.name.includes('ZOO'))) ||
+        (primarySubj === 'PSYCHOLOGY' && (d.code === 'PSY' || d.name.includes('PSY'))) ||
+        (primarySubj === 'HOME SCIENCE' && (d.code === 'H.SCI' || d.name.includes('HOME')))
     );
 
     if (matchingDept) {
       setSelectedDepartmentId(matchingDept.id);
-      if (matchingDept.coordinator) {
+      if (!inchargeName && matchingDept.coordinator) {
         setInchargeName(matchingDept.coordinator);
       }
-    } else if (departments.length > 0) {
+    } else if (!selectedDepartmentId && departments.length > 0) {
       setSelectedDepartmentId(departments[0].id);
-      if (departments[0].coordinator) {
+      if (!inchargeName && departments[0].coordinator) {
         setInchargeName(departments[0].coordinator);
       }
     }
@@ -321,37 +337,76 @@ export const FormBuilderModule: React.FC<FormBuilderModuleProps> = ({
     // 2. Suggest Title & Course
     const paperObj = availablePapers.find((p) => p.id === selectedPaperId);
     const paperLabel = paperObj ? paperObj.paperName : 'Practical';
-    setTitle(`${selectedSession} ${selectedSemester} - ${cleanSubj} (${paperLabel})`);
-    setCourse(`B.A ${cleanSubj}`);
+    const subjsDisplay = subjectsList.join(' / ');
+    setTitle(`${selectedSession} ${selectedSemester} - ${subjsDisplay} (${paperLabel})`);
+    setCourse(subjectsList.length === 1 ? `B.A ${subjectsList[0]}` : `B.A / B.Sc (${subjsDisplay})`);
     setExamName(`${selectedSession} ${selectedSemester} Practical Examination`);
     setExamYear(selectedSession);
   };
 
   const fetchAllottedStudentsForCombination = async () => {
-    if (!selectedSession || !selectedSemester || !selectedPracticalSubject) {
+    if (!selectedSession || !selectedSemester || selectedPracticalSubjects.length === 0) {
       setAllottedStudents([]);
+      setAllottedStudentsBySubject({});
       return;
     }
 
     try {
       setLoadingAllottedStudents(true);
       const paperObj = availablePapers.find((p) => p.id === selectedPaperId);
-      const studentsFound = await getMatchingAllottedStudents({
-        session: selectedSession,
-        semester: selectedSemester,
-        subjectType: selectedSubjectType,
-        paperId: selectedPaperId || undefined,
-        paperName: paperObj?.paperName,
-        subject: selectedPracticalSubject,
-      });
+      const bySubj: Record<string, PaperStudent[]> = {};
+      const allList: PaperStudent[] = [];
 
-      setAllottedStudents(studentsFound || []);
+      for (const subj of selectedPracticalSubjects) {
+        const found = await getMatchingAllottedStudents({
+          session: selectedSession,
+          semester: selectedSemester,
+          subjectType: selectedSubjectType,
+          paperId: selectedPaperId || undefined,
+          paperName: paperObj?.paperName,
+          subject: subj,
+        });
+        bySubj[subj.toUpperCase()] = found || [];
+        allList.push(...(found || []));
+      }
+
+      setAllottedStudentsBySubject(bySubj);
+      setAllottedStudents(allList);
       setPreviewPage(1);
     } catch (err) {
       console.warn('Error fetching allotted students:', err);
       setAllottedStudents([]);
+      setAllottedStudentsBySubject({});
     } finally {
       setLoadingAllottedStudents(false);
+    }
+  };
+
+  const handleToggleSubject = (subjName: string) => {
+    const norm = subjName.trim().toUpperCase();
+    const isSelected = selectedPracticalSubjects.some((s) => s.toUpperCase() === norm);
+
+    if (isSelected) {
+      if (selectedPracticalSubjects.length === 1) {
+        alert('A Practical Form must have at least one practical subject assigned.');
+        return;
+      }
+
+      if (editingForm) {
+        const activeInForm = (editingForm.subjectAssignments || getFormActiveSubjects(editingForm)).some(
+          (s) => s.subjectName.toUpperCase() === norm && s.status === 'active'
+        );
+        if (activeInForm) {
+          const ok = window.confirm(
+            `Remove practical subject "${norm}" from this form?\n\nIf marks have been entered, they will remain safely preserved in the database archive.`
+          );
+          if (!ok) return;
+        }
+      }
+
+      setSelectedPracticalSubjects((prev) => prev.filter((s) => s.toUpperCase() !== norm));
+    } else {
+      setSelectedPracticalSubjects((prev) => [...prev, norm]);
     }
   };
 
@@ -360,7 +415,9 @@ export const FormBuilderModule: React.FC<FormBuilderModuleProps> = ({
     setSelectedSession('2025-29');
     setSelectedSemester('Semester 2');
     setSelectedSubjectType('MJC');
-    setSelectedPracticalSubject('GEOGRAPHY');
+    setSelectedPracticalSubjects(['GEOGRAPHY']);
+    setInchargeName('Kunal Singh');
+    setExaminerName('');
     setMaxMarks(50);
     setMinPassingMarks(17);
     setExamDate(new Date().toISOString().slice(0, 10));
@@ -380,7 +437,11 @@ export const FormBuilderModule: React.FC<FormBuilderModuleProps> = ({
     setSelectedSubjectType(form.subjectType || 'MJC');
     setSelectedPaperId(form.paperId || '');
     setSelectedDepartmentId(form.departmentId);
-    setSelectedPracticalSubject(form.subjectName || 'GEOGRAPHY');
+
+    const activeSubjs = getFormActiveSubjects(form);
+    const subjs = activeSubjs.map((s) => s.subjectName);
+    setSelectedPracticalSubjects(subjs.length > 0 ? subjs : [form.subjectName || 'GEOGRAPHY']);
+
     setInchargeName(form.inchargeName || '');
     setExaminerName(form.examinerName || '');
     setCourse(form.course);
@@ -394,6 +455,7 @@ export const FormBuilderModule: React.FC<FormBuilderModuleProps> = ({
     setInstructions(form.instructions || '');
     setStatus(form.status);
     setError(null);
+    setShowCreateModal(true);
   };
 
   const handleMaxMarksChange = (val: number) => {
@@ -422,25 +484,47 @@ export const FormBuilderModule: React.FC<FormBuilderModuleProps> = ({
       return;
     }
 
-    if (!selectedPracticalSubject) {
-      setError('Please select a valid Practical Subject.');
+    if (selectedPracticalSubjects.length === 0) {
+      setError('Please select at least one practical subject for this Incharge.');
       return;
     }
 
     const currentPaper = availablePapers.find((p) => p.id === selectedPaperId);
     const departmentObj = departments.find((d) => d.id === selectedDepartmentId);
 
-    // Resolve subject code
-    const matchingSubjDoc = subjects.find(
-      (s) => s.name.trim().toUpperCase() === selectedPracticalSubject.trim().toUpperCase()
-    );
-    const subjectCode = matchingSubjDoc?.code || selectedPracticalSubject.slice(0, 4).toUpperCase();
-    const subjectId = matchingSubjDoc?.id || `subj_${selectedPracticalSubject.toLowerCase()}`;
+    // Build subject assignments array
+    const subjectAssignments: PracticalFormSubjectAssignment[] = selectedPracticalSubjects.map((subj) => {
+      const normSubj = subj.trim().toUpperCase();
+      const matchingSubjDoc = subjects.find((s) => s.name.trim().toUpperCase() === normSubj);
+      const count =
+        paperAllottedSubjects.find((p) => p.subject.toUpperCase() === normSubj)?.studentCount ||
+        allottedStudentsBySubject[normSubj]?.length ||
+        0;
+
+      return {
+        subjectId: matchingSubjDoc?.id || `psubj_${normSubj.toLowerCase()}`,
+        subjectName: normSubj,
+        subjectCode: matchingSubjDoc?.code || normSubj.slice(0, 4).toUpperCase(),
+        departmentId: selectedDepartmentId,
+        departmentName: departmentObj ? departmentObj.name : normSubj,
+        studentCount: count,
+        status: 'active' as const,
+        addedAt: new Date().toISOString(),
+      };
+    });
 
     try {
       setLoading(true);
 
       if (editingForm) {
+        const prevAssignments = editingForm.subjectAssignments || getFormActiveSubjects(editingForm);
+        // Archive any previous subjects that were unchecked
+        const archived = prevAssignments
+          .filter((pa) => !selectedPracticalSubjects.some((s) => s.toUpperCase() === pa.subjectName.toUpperCase()))
+          .map((pa) => ({ ...pa, status: 'archived' as const }));
+
+        const combinedAssignments = [...subjectAssignments, ...archived];
+
         await updatePracticalForm(editingForm.id, {
           title: title.trim(),
           session: selectedSession,
@@ -449,16 +533,17 @@ export const FormBuilderModule: React.FC<FormBuilderModuleProps> = ({
           paperId: selectedPaperId || editingForm.paperId,
           paperName: currentPaper ? currentPaper.paperName : editingForm.paperName,
           departmentId: selectedDepartmentId,
-          departmentName: departmentObj ? departmentObj.name : selectedPracticalSubject,
-          subjectId,
-          subjectCode,
-          subjectName: selectedPracticalSubject,
-          inchargeName: inchargeName || departmentObj?.coordinator || 'Prof. Incharge',
+          departmentName: departmentObj ? departmentObj.name : selectedPracticalSubjects[0],
+          subjectId: subjectAssignments[0]?.subjectId || editingForm.subjectId,
+          subjectCode: subjectAssignments[0]?.subjectCode || editingForm.subjectCode,
+          subjectName: selectedPracticalSubjects[0],
+          subjectAssignments: combinedAssignments,
+          inchargeName: inchargeName || departmentObj?.coordinator || 'Kunal Singh',
           examinerName: examinerName || '',
           course,
           section,
           examName,
-          examYear,
+          examYear: selectedSession,
           maxMarks: Number(maxMarks),
           minPassingMarks: Number(minPassingMarks),
           instructions,
@@ -466,12 +551,29 @@ export const FormBuilderModule: React.FC<FormBuilderModuleProps> = ({
           allowDecimals,
           status,
         });
+
+        // Auto enroll candidates for newly added subjects
+        for (const subj of selectedPracticalSubjects) {
+          const wasActive = prevAssignments.some(
+            (pa) => pa.status === 'active' && pa.subjectName.toUpperCase() === subj.toUpperCase()
+          );
+          const studentsForSubj = allottedStudentsBySubject[subj.toUpperCase()] || [];
+          if (!wasActive && studentsForSubj.length > 0) {
+            await enrollPaperStudentsInForm(
+              { ...editingForm, subjectName: subj },
+              studentsForSubj,
+              subj
+            );
+          }
+        }
+
         setEditingForm(null);
+        setShowCreateModal(false);
       } else {
         // Validate matching student allocations
         if (allottedStudents.length === 0) {
           const proceed = window.confirm(
-            `Notice: No allotted students currently found in Firestore for ${selectedPracticalSubject} under ${currentPaper?.paperName || 'selected paper'}. Do you still wish to create an empty form?`
+            `Notice: No allotted students currently found in Firestore for selected subject(s) under ${currentPaper?.paperName || 'selected paper'}. Do you still wish to create this form?`
           );
           if (!proceed) {
             setLoading(false);
@@ -488,11 +590,12 @@ export const FormBuilderModule: React.FC<FormBuilderModuleProps> = ({
             paperId: selectedPaperId,
             paperName: currentPaper ? currentPaper.paperName : 'Practical',
             departmentId: selectedDepartmentId,
-            departmentName: departmentObj ? departmentObj.name : selectedPracticalSubject,
-            subjectId,
-            subjectCode,
-            subjectName: selectedPracticalSubject,
-            inchargeName: inchargeName || departmentObj?.coordinator || 'Prof. Incharge',
+            departmentName: departmentObj ? departmentObj.name : selectedPracticalSubjects[0],
+            subjectId: subjectAssignments[0]?.subjectId || `subj_${selectedPracticalSubjects[0].toLowerCase()}`,
+            subjectCode: subjectAssignments[0]?.subjectCode || selectedPracticalSubjects[0].slice(0, 4).toUpperCase(),
+            subjectName: selectedPracticalSubjects[0],
+            subjectAssignments,
+            inchargeName: inchargeName || departmentObj?.coordinator || 'Kunal Singh',
             examinerName: examinerName || '',
             course,
             section,
@@ -767,8 +870,11 @@ export const FormBuilderModule: React.FC<FormBuilderModuleProps> = ({
             const sessionVal = form.session || form.examYear || '2025-29';
             const semesterVal = form.semester || 'Semester 2';
             const paperVal = form.paperName || 'MJC-5';
-            const inchargeVal = form.inchargeName || 'ANIKET PATEL';
+            const inchargeVal = form.inchargeName || 'Kunal Singh';
             const candidateCount = form.studentCount || 0;
+            const activeSubjects = form.subjectAssignments && form.subjectAssignments.length > 0
+              ? form.subjectAssignments.filter((s) => s.status === 'active')
+              : null;
 
             return (
               <div
@@ -816,9 +922,30 @@ export const FormBuilderModule: React.FC<FormBuilderModuleProps> = ({
                   {/* Form Title & Course */}
                   <h3 className="text-base font-bold text-white tracking-tight">{form.title}</h3>
                   <p className="text-xs text-slate-400 mt-0.5">
-                    Course: <span className="text-slate-200 font-medium">{form.course}</span> • Practical Subject:{' '}
-                    <span className="text-blue-400 font-semibold">{form.subjectName}</span>
+                    Course: <span className="text-slate-200 font-medium">{form.course}</span>
                   </p>
+
+                  {/* Assigned Practical Subjects Badges */}
+                  <div className="mt-2.5 flex flex-wrap items-center gap-1.5">
+                    <span className="text-[11px] font-medium text-slate-400">Allotted Subject(s):</span>
+                    {activeSubjects && activeSubjects.length > 0 ? (
+                      activeSubjects.map((asgn) => (
+                        <span
+                          key={asgn.subjectId}
+                          className="inline-flex items-center gap-1 text-[11px] font-bold px-2 py-0.5 rounded-md bg-emerald-500/15 text-emerald-300 border border-emerald-500/30"
+                        >
+                          <span>{asgn.subjectName}</span>
+                          <span className="bg-emerald-950/80 px-1 rounded text-[10px] text-emerald-400">
+                            {asgn.studentCount ?? 0}
+                          </span>
+                        </span>
+                      ))
+                    ) : (
+                      <span className="inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-md bg-blue-500/15 text-blue-300 border border-blue-500/30">
+                        {form.subjectName} ({candidateCount})
+                      </span>
+                    )}
+                  </div>
 
                   {/* Complete Examination & Database Relationships Grid */}
                   <div className="mt-4 p-3.5 rounded-xl bg-slate-950/70 border border-slate-800 grid grid-cols-2 gap-2.5 text-xs">
@@ -1103,28 +1230,92 @@ export const FormBuilderModule: React.FC<FormBuilderModuleProps> = ({
                       </select>
                     </div>
 
-                    {/* STEP 6: Practical Subject */}
-                    <div>
-                      <label className="block text-xs font-semibold uppercase text-slate-300 mb-1.5">
-                        Step 6: Practical Subject *
-                      </label>
-                      <select
-                        value={selectedPracticalSubject}
-                        onChange={(e) => setSelectedPracticalSubject(e.target.value)}
-                        className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-xl text-xs text-white focus:outline-none focus:ring-2 focus:ring-blue-500 font-bold text-blue-300"
-                      >
-                        {paperAllottedSubjects.length > 0
-                          ? paperAllottedSubjects.map((s) => (
-                              <option key={s.subject} value={s.subject}>
-                                {s.subject} ({s.studentCount} students allotted)
-                              </option>
-                            ))
-                          : practicalSubjectsList.map((ps) => (
-                              <option key={ps.id} value={ps.name}>
-                                {ps.name}
-                              </option>
-                            ))}
-                      </select>
+                    {/* STEP 6: Practical Subject(s) Multi-Select */}
+                    <div className="sm:col-span-3 pt-2 border-t border-slate-800">
+                      <div className="flex items-center justify-between mb-2">
+                        <label className="block text-xs font-semibold uppercase text-slate-300">
+                          Step 6: Practical Subject(s) Allotted to this Incharge *
+                        </label>
+                        <span className="text-[11px] text-blue-400 font-medium">
+                          Select one or multiple practical subjects for this Incharge (e.g. GEOGRAPHY, BOTANY, ZOOLOGY)
+                        </span>
+                      </div>
+
+                      {/* Selectable Subjects Grid */}
+                      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2.5 p-3 bg-slate-900 border border-slate-700/80 rounded-xl">
+                        {(paperAllottedSubjects.length > 0
+                          ? paperAllottedSubjects
+                          : practicalSubjectsList.map((ps) => ({ subject: ps.name, studentCount: 0 }))
+                        ).map((s) => {
+                          const isSelected = selectedPracticalSubjects.some(
+                            (sel) => sel.toUpperCase() === s.subject.toUpperCase()
+                          );
+                          return (
+                            <button
+                              key={s.subject}
+                              type="button"
+                              onClick={() => handleToggleSubject(s.subject)}
+                              className={`p-2.5 rounded-xl text-left text-xs font-semibold border flex items-center justify-between gap-2 transition-all cursor-pointer ${
+                                isSelected
+                                  ? 'bg-blue-600/25 border-blue-500 text-white shadow-sm ring-1 ring-blue-500/50'
+                                  : 'bg-slate-950/80 border-slate-800 text-slate-300 hover:border-slate-700 hover:text-white'
+                              }`}
+                            >
+                              <div className="flex items-center gap-2 truncate">
+                                <div
+                                  className={`w-4 h-4 rounded flex items-center justify-center shrink-0 text-[10px] ${
+                                    isSelected
+                                      ? 'bg-blue-600 text-white'
+                                      : 'border border-slate-600 bg-slate-900'
+                                  }`}
+                                >
+                                  {isSelected && <Check className="w-3 h-3 stroke-[3]" />}
+                                </div>
+                                <span className="truncate font-bold">{s.subject}</span>
+                              </div>
+                              <span
+                                className={`text-[10px] px-1.5 py-0.5 rounded-full font-mono shrink-0 font-bold ${
+                                  isSelected
+                                    ? 'bg-blue-500/40 text-blue-200 border border-blue-400/40'
+                                    : 'bg-slate-800 text-slate-400'
+                                }`}
+                              >
+                                {s.studentCount}
+                              </span>
+                            </button>
+                          );
+                        })}
+                      </div>
+
+                      {/* Selected Summary Pill Badges */}
+                      <div className="mt-2.5 flex flex-wrap items-center gap-2">
+                        <span className="text-[11px] text-slate-400 font-medium">
+                          Allotted to this Form ({selectedPracticalSubjects.length}):
+                        </span>
+                        {selectedPracticalSubjects.map((subj) => {
+                          const count = paperAllottedSubjects.find(
+                            (p) => p.subject.toUpperCase() === subj.toUpperCase()
+                          )?.studentCount || (allottedStudentsBySubject[subj.toUpperCase()]?.length || 0);
+
+                          return (
+                            <span
+                              key={subj}
+                              className="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-bold bg-blue-500/20 text-blue-300 border border-blue-500/40 shadow-sm"
+                            >
+                              <span>{subj}</span>
+                              <span className="text-[10px] font-mono text-blue-400">({count})</span>
+                              <button
+                                type="button"
+                                onClick={() => handleToggleSubject(subj)}
+                                className="text-blue-300 hover:text-white ml-0.5 p-0.5 rounded hover:bg-blue-500/30 transition-colors"
+                                title={`Remove ${subj}`}
+                              >
+                                <X className="w-3 h-3" />
+                              </button>
+                            </span>
+                          );
+                        })}
+                      </div>
                     </div>
                   </div>
 
@@ -1132,7 +1323,7 @@ export const FormBuilderModule: React.FC<FormBuilderModuleProps> = ({
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2 border-t border-slate-850">
                     <div>
                       <label className="block text-xs font-semibold uppercase text-emerald-400 mb-1.5">
-                        Step 7: Subject Incharge Name (from Department/Group)
+                        Step 7: Subject Incharge Name *
                       </label>
                       <div className="relative">
                         <input
@@ -1140,12 +1331,12 @@ export const FormBuilderModule: React.FC<FormBuilderModuleProps> = ({
                           required
                           value={inchargeName}
                           onChange={(e) => setInchargeName(e.target.value)}
-                          placeholder="e.g. ANIKET PATEL"
-                          className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-xl text-xs text-slate-100 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                          placeholder="e.g. Kunal Singh"
+                          className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-xl text-xs text-slate-100 focus:outline-none focus:ring-2 focus:ring-emerald-500 font-bold"
                         />
                       </div>
                       <p className="text-[10px] text-slate-400 mt-1">
-                        Coordinator incharge for this department / examination.
+                        All selected subjects above will be evaluated by this Incharge under this single Practical Form.
                       </p>
                     </div>
 
@@ -1184,10 +1375,42 @@ export const FormBuilderModule: React.FC<FormBuilderModuleProps> = ({
                       )}
                     </div>
 
-                    <div className="text-[11px] text-slate-400">
-                      Auto-linking to: <span className="text-white font-mono">{selectedSession}</span> •{' '}
-                      <span className="text-white">{selectedSemester}</span> •{' '}
-                      <span className="text-white">{selectedPracticalSubject}</span>
+                    {/* Subject Filter Tabs */}
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setPreviewSubjectFilter('ALL');
+                          setPreviewPage(1);
+                        }}
+                        className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all ${
+                          previewSubjectFilter === 'ALL'
+                            ? 'bg-blue-600 text-white'
+                            : 'bg-slate-900 text-slate-400 hover:text-white'
+                        }`}
+                      >
+                        All ({allottedStudents.length})
+                      </button>
+                      {selectedPracticalSubjects.map((sub) => {
+                        const count = allottedStudentsBySubject[sub.toUpperCase()]?.length || 0;
+                        return (
+                          <button
+                            key={sub}
+                            type="button"
+                            onClick={() => {
+                              setPreviewSubjectFilter(sub);
+                              setPreviewPage(1);
+                            }}
+                            className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all ${
+                              previewSubjectFilter.toUpperCase() === sub.toUpperCase()
+                                ? 'bg-blue-600 text-white'
+                                : 'bg-slate-900 text-slate-400 hover:text-white'
+                            }`}
+                          >
+                            {sub} ({count})
+                          </button>
+                        );
+                      })}
                     </div>
                   </div>
 
@@ -1195,9 +1418,9 @@ export const FormBuilderModule: React.FC<FormBuilderModuleProps> = ({
                     <div className="p-4 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-300 text-xs flex items-start gap-2.5">
                       <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
                       <div>
-                        <p className="font-bold">No Allocated Students Found For This Combination</p>
+                        <p className="font-bold">No Allocated Students Found For Selected Subjects</p>
                         <p className="text-[11px] text-amber-200/80 mt-0.5">
-                          There are currently no students in Firestore matching Session {selectedSession}, {selectedSemester}, Subject {selectedPracticalSubject}. Please verify your selections or upload the student list in Student Management.
+                          There are currently no students in Firestore matching Session {selectedSession}, {selectedSemester}, Subjects [{selectedPracticalSubjects.join(', ')}]. Please verify your selections.
                         </p>
                       </div>
                     </div>
@@ -1594,7 +1817,7 @@ export const FormBuilderModule: React.FC<FormBuilderModuleProps> = ({
                             {enr.rollNumber}
                           </td>
                           <td className="py-2 px-3 text-slate-300">
-                            {activeRosterForm.subjectName || 'GEOGRAPHY'}
+                            {enr.subject || activeRosterForm.subjectName || 'GEOGRAPHY'}
                           </td>
                           <td className="py-2 px-3">
                             <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
