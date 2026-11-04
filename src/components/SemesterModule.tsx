@@ -18,6 +18,7 @@ import {
   createAcademicSemester,
   updateAcademicSemester,
   deleteAcademicSemester,
+  subscribeToAcademicSemesters,
 } from '../services/collegeService';
 
 export const SemesterModule: React.FC = () => {
@@ -36,23 +37,23 @@ export const SemesterModule: React.FC = () => {
   const [editOrder, setEditOrder] = useState<number>(1);
 
   useEffect(() => {
-    loadSemesters();
-  }, []);
-
-  const loadSemesters = async () => {
-    try {
-      setLoading(true);
-      const list = await getAcademicSemesters();
-      setSemesters(list || []);
-      if (list && list.length > 0) {
-        setNewOrder(list.length + 1);
+    setLoading(true);
+    const unsubscribe = subscribeToAcademicSemesters(
+      (list) => {
+        setSemesters(list || []);
+        if (list && list.length > 0) {
+          setNewOrder(list.length + 1);
+        }
+        setLoading(false);
+      },
+      (err) => {
+        console.warn('Real-time semesters error:', err);
+        setErrorMessage('Failed to load semesters from Firestore.');
+        setLoading(false);
       }
-    } catch (err: any) {
-      setErrorMessage('Failed to load semesters from Firestore.');
-    } finally {
-      setLoading(false);
-    }
-  };
+    );
+    return () => unsubscribe();
+  }, []);
 
   const handleAddSemester = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -76,7 +77,6 @@ export const SemesterModule: React.FC = () => {
       setSuccessMessage(`Semester "${clean}" successfully added to Firestore!`);
       setNewSemesterName('');
       setShowAddModal(false);
-      await loadSemesters();
     } catch (err: any) {
       setErrorMessage(err.message || 'Error creating semester.');
     } finally {
@@ -87,9 +87,6 @@ export const SemesterModule: React.FC = () => {
   const handleToggleActive = async (semester: AcademicSemester) => {
     try {
       await updateAcademicSemester(semester.id, { isActive: !semester.isActive });
-      setSemesters((prev) =>
-        prev.map((s) => (s.id === semester.id ? { ...s, isActive: !s.isActive } : s))
-      );
       setSuccessMessage(
         `${semester.semesterName} is now ${!semester.isActive ? 'Active' : 'Inactive'}.`
       );
@@ -118,7 +115,6 @@ export const SemesterModule: React.FC = () => {
       });
       setSuccessMessage(`Semester updated to "${clean}" successfully.`);
       setEditingSemester(null);
-      await loadSemesters();
     } catch (err: any) {
       setErrorMessage('Failed to update semester.');
     } finally {
@@ -134,7 +130,6 @@ export const SemesterModule: React.FC = () => {
     try {
       await deleteAcademicSemester(semester.id);
       setSuccessMessage(`Semester "${semester.semesterName}" deleted.`);
-      await loadSemesters();
     } catch (err: any) {
       setErrorMessage('Failed to delete semester.');
     }
@@ -206,10 +201,10 @@ export const SemesterModule: React.FC = () => {
           <h3 className="text-sm font-bold text-slate-300">No Semesters Found</h3>
           <p className="text-xs text-slate-500 mt-1 mb-4">Click below to auto-populate Semester 1 to Semester 8.</p>
           <button
-            onClick={loadSemesters}
+            onClick={() => setShowAddModal(true)}
             className="px-4 py-2 rounded-xl bg-blue-600 text-white text-xs font-semibold"
           >
-            Initialize 8 Semesters
+            Add Academic Semester
           </button>
         </div>
       ) : (

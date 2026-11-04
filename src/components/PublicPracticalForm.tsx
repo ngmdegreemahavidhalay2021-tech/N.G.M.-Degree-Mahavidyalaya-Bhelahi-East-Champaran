@@ -45,6 +45,8 @@ import {
   getFormActiveSubjects,
   logActivity,
 } from '../services/collegeService';
+import { doc, onSnapshot } from 'firebase/firestore';
+import { db } from '../lib/firebase';
 import * as XLSX from 'xlsx';
 
 interface PublicPracticalFormProps {
@@ -144,6 +146,31 @@ export const PublicPracticalForm: React.FC<PublicPracticalFormProps> = ({
   useEffect(() => {
     loadExaminationData();
   }, [token]);
+
+  // Live real-time sync for form metadata (lock state, status, active toggle, deactivation)
+  useEffect(() => {
+    if (!practicalForm?.id) return;
+    const unsub = onSnapshot(
+      doc(db, 'practicalForms', practicalForm.id),
+      (snap) => {
+        if (!snap.exists()) {
+          setError('This practical examination form has been deleted or archived by College Administration.');
+          return;
+        }
+        const data = snap.data() as PracticalForm;
+        setPracticalForm((prev) => (prev ? { ...prev, ...data } : null));
+        if (!data.isActive) {
+          setError('This practical examination link has been disabled by College Administration.');
+        } else if (data.status === 'closed') {
+          // Closed by admin
+        }
+      },
+      (err) => {
+        console.warn('Real-time practicalForm snapshot notice:', err);
+      }
+    );
+    return () => unsub();
+  }, [practicalForm?.id]);
 
   const loadExaminationData = async () => {
     try {

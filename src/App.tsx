@@ -65,6 +65,10 @@ import {
   seedInitialCollegeData,
   logActivity,
   getAppearanceSettings,
+  subscribeToDepartments,
+  subscribeToSubjects,
+  subscribeToPracticalForms,
+  subscribeToStudents,
 } from './services/collegeService';
 import { fetchBootstrapStatus } from './services/examService';
 
@@ -158,6 +162,45 @@ export default function App() {
     }
 
     initSystem();
+  }, []);
+
+  // Real-time Firestore synchronization across all screens & tabs
+  useEffect(() => {
+    const unsubs: Array<() => void> = [];
+
+    const unsubDepts = subscribeToDepartments((liveDepts) => {
+      setDepartments(liveDepts);
+    });
+    unsubs.push(unsubDepts);
+
+    const unsubSubjs = subscribeToSubjects((liveSubjs) => {
+      setSubjects(liveSubjs);
+    });
+    unsubs.push(unsubSubjs);
+
+    const unsubForms = subscribeToPracticalForms((liveForms) => {
+      setForms(liveForms);
+      getCollegeStats()
+        .then((st) => {
+          if (st) setStats(st);
+        })
+        .catch(() => {});
+    });
+    unsubs.push(unsubForms);
+
+    const unsubStudents = subscribeToStudents((liveStudents) => {
+      setStudents(liveStudents);
+      getCollegeStats()
+        .then((st) => {
+          if (st) setStats(st);
+        })
+        .catch(() => {});
+    });
+    unsubs.push(unsubStudents);
+
+    return () => {
+      unsubs.forEach((u) => u());
+    };
   }, []);
 
   const initSystem = async () => {

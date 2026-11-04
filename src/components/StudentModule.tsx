@@ -61,6 +61,9 @@ import {
   reopenExaminerAssignment,
   generatePermanentPaperStudentId,
   matchPracticalSubject,
+  subscribeToAcademicSessions,
+  subscribeToPracticalSubjects,
+  subscribeToAcademicPapers,
 } from '../services/collegeService';
 
 interface StudentModuleProps {
@@ -142,41 +145,68 @@ export const StudentModule: React.FC<StudentModuleProps> = ({
   const [copiedToken, setCopiedToken] = useState<string | null>(null);
 
   useEffect(() => {
-    loadInitialSessionsAndSubjects();
+    const unsubs: Array<() => void> = [];
+
+    const u1 = subscribeToAcademicSessions((sessList) => {
+      setSessions(sessList);
+      if (sessList.length > 0) {
+        setSelectedSession((curr) => {
+          if (curr && sessList.some((s) => s.sessionName === curr)) return curr;
+          const has2025 = sessList.find((s) => s.sessionName === '2025-29');
+          return has2025 ? '2025-29' : sessList[0].sessionName;
+        });
+      }
+    });
+    unsubs.push(u1);
+
+    const u2 = subscribeToPracticalSubjects((subjList) => {
+      setPracticalSubjects(subjList);
+    });
+    unsubs.push(u2);
+
+    return () => unsubs.forEach((u) => u());
   }, []);
 
   useEffect(() => {
-    loadPapersForSelection();
-  }, [selectedSession, selectedSemester, selectedSubjectType]);
+    setLoadingPapers(true);
+    const uPaper = subscribeToAcademicPapers(
+      async (papersList) => {
+        setPapers(papersList);
 
-  const loadInitialSessionsAndSubjects = async () => {
-    try {
-      const [sessList, subjList] = await Promise.all([
-        getAcademicSessions(),
-        getPracticalSubjects(),
-      ]);
-      setSessions(sessList);
-      if (sessList.length > 0) {
-        // Prefer 2025-29 if present, or first
-        const has2025 = sessList.find((s) => s.sessionName === '2025-29');
-        setSelectedSession(has2025 ? '2025-29' : sessList[0].sessionName);
-      }
-      setPracticalSubjects(subjList);
-    } catch (err) {
-      console.error('Error loading sessions/subjects:', err);
-    }
-  };
+        // Load students and assignments for each paper
+        const studMap: Record<string, PaperStudent[]> = {};
+        const asgnMap: Record<string, ExaminerAssignment[]> = {};
+
+        await Promise.all(
+          papersList.map(async (p) => {
+            const [stList, asList] = await Promise.all([
+              getPaperStudents(p.id),
+              getExaminerAssignments({ paperId: p.id }),
+            ]);
+            studMap[p.id] = stList;
+            asgnMap[p.id] = asList;
+          })
+        );
+
+        setPaperStudentsMap(studMap);
+        setPaperAssignmentsMap(asgnMap);
+        setLoadingPapers(false);
+      },
+      selectedSession,
+      selectedSemester,
+      selectedSubjectType
+    );
+
+    return () => uPaper();
+  }, [selectedSession, selectedSemester, selectedSubjectType]);
 
   const loadPapersForSelection = async () => {
     try {
       setLoadingPapers(true);
       const papersList = await getAcademicPapers(selectedSession, selectedSemester, selectedSubjectType);
       setPapers(papersList);
-
-      // Load students and assignments for each paper
       const studMap: Record<string, PaperStudent[]> = {};
       const asgnMap: Record<string, ExaminerAssignment[]> = {};
-
       await Promise.all(
         papersList.map(async (p) => {
           const [stList, asList] = await Promise.all([
@@ -187,11 +217,10 @@ export const StudentModule: React.FC<StudentModuleProps> = ({
           asgnMap[p.id] = asList;
         })
       );
-
       setPaperStudentsMap(studMap);
       setPaperAssignmentsMap(asgnMap);
     } catch (err) {
-      console.error('Error loading papers:', err);
+      console.warn('Error loading papers:', err);
     } finally {
       setLoadingPapers(false);
     }
