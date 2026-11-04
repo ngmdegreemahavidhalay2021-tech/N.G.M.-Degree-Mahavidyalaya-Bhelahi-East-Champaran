@@ -1,0 +1,709 @@
+# MASTER PROMPT – SAFE UPGRADES FOR EXISTING NGM DEGREE MAHAVIDYALAYA PRACTICAL EXAMINATION MARKS ERP
+
+## CRITICAL INSTRUCTION: UPGRADE, DO NOT REBUILD
+
+My existing NGM Degree Mahavidyalaya Practical Examination Marks Management ERP is already developed, functional, and deployed.
+
+I am satisfied with its existing design, UI, features, database structure, academic workflow, and overall functionality.
+
+I ONLY want the specific upgrades and bug fixes described below.
+
+**DO NOT CREATE A NEW APPLICATION. DO NOT REBUILD OR REWRITE THE EXISTING PROJECT. DO NOT REPLACE WORKING FEATURES.**
+
+The objective is to improve the existing ERP without breaking anything that already works.
+
+# PART 1 – PRESERVE THE EXISTING APPLICATION
+
+1. First inspect the existing codebase and understand its architecture.
+2. Identify exactly which files and components need modification.
+3. Reuse existing components, functions, APIs, Firebase collections, and database relationships wherever possible.
+4. Make the smallest possible targeted code changes.
+5. Do not rewrite complete pages or modules unnecessarily.
+6. Do not change the existing UI design, colors, typography, layout, or workflow unless explicitly required below.
+7. Do not remove existing working buttons, features, reports, forms, or navigation options.
+8. Do not replace the existing Firebase project or database.
+9. Do not reset, delete, recreate, or overwrite existing Firestore collections or valid records.
+10. Do not unnecessarily change existing document IDs, routes, form links, tokens, or permissions.
+11. Do not introduce mock data or temporary frontend-only solutions.
+12. Do not introduce new dependencies unless absolutely necessary.
+13. Maintain backward compatibility with existing records and historical examination data.
+14. If a database modification is required, first inspect the existing schema and implement the safest compatible solution.
+15. If a feature is already working correctly, leave its implementation untouched.
+
+Before significant changes, preserve the current working version through Git backup/commit or a separate recovery branch wherever available.
+
+**CORE RULE: UPGRADE, DO NOT REBUILD. FIX, DO NOT REPLACE. PRESERVE EVERYTHING THAT ALREADY WORKS.**
+
+# PART 2 – FIX REPEATED FIREBASE ENVIRONMENT VARIABLE REQUEST
+
+I have already entered Firebase Environment Variables in Google AI Studio, but the application repeatedly asks me to enter them again.
+
+Find and fix the actual root cause.
+
+1. Inspect package.json, vite.config.ts (if present), framework configuration, Firebase initialization files, and all environment variable references.
+2. Identify the actual framework: Vite, Next.js, or another framework.
+3. Use the correct convention consistently:
+   - Vite: `import.meta.env.VITE_FIREBASE_*`
+   - Next.js: `process.env.NEXT_PUBLIC_FIREBASE_*`
+4. Never mix Vite and Next.js conventions.
+5. Ensure variable names exactly match the names configured in Google AI Studio.
+6. Verify that configured values are actually available when the application starts.
+7. Do not request values that are already configured.
+8. Initialize Firebase only once and reuse the existing Firebase app instance.
+9. If a required variable is genuinely missing, show a clear error identifying the missing variable.
+10. Never expose private service account credentials or server secrets in frontend code.
+11. Do not replace the existing Firebase project or database.
+12. Verify successful Firebase initialization and connectivity.
+
+Do not simply hide the Environment Variables prompt. Fix the actual configuration mismatch.
+
+# PART 3 – REAL-TIME FIRESTORE SYNCHRONIZATION
+
+Currently, when records are deleted, changes do not update all relevant screens immediately.
+
+Fix this throughout the existing application.
+
+Implement reliable Firebase Firestore real-time synchronization using appropriate listeners such as `onSnapshot` wherever required.
+
+Ensure:
+
+- Adding a record updates relevant pages automatically.
+- Editing a record updates relevant pages automatically.
+- Deleting a record removes it from all relevant screens immediately.
+- Changes made by Admin are reflected for other authorized users.
+- Changes made by authorized Incharges are reflected wherever applicable.
+- Dashboard counters update automatically.
+- Reports and analytics show the latest database records.
+- Student allocations remain synchronized.
+- Practical Forms and subject assignments remain synchronized.
+- Session, Semester, Paper, Subject, Department, Group, Incharge, and Examiner data remain synchronized.
+- Dependent dropdowns refresh automatically.
+- Multiple browser tabs and devices receive updates without manually refreshing.
+
+Use proper Firestore listeners, unsubscribe when components unmount, prevent duplicate listeners and memory leaks, and avoid stale state overwriting newer data.
+
+# PART 4 – PERMANENT DELETE, EDIT AND ARCHIVE FIXES
+
+Fix existing Add, Edit, Delete, and Archive operations.
+
+- Perform actual authorized Firestore database operations.
+- Update the UI after database confirmation, or use safe optimistic updates with rollback on failure.
+- Ensure deleted records do not reappear after navigation, refresh, logout/login, or reopening the portal.
+- Check dependent records before deleting.
+- Preserve historical marks, submissions, and audit records.
+- Use archive/deactivation instead of destructive deletion where historical dependencies exist.
+- Display accurate success and failure messages.
+- Never show success when the Firestore operation fails.
+- Record important operations in Activity Logs.
+- Prevent old cached data, automatic seed data, or stale queries from restoring deleted records.
+
+# PART 5 – INCHARGE MARKS ENTRY TABLE
+
+Simplify the existing Incharge marks-entry table.
+
+Keep only these columns in this exact order:
+
+1. SN.
+2. ROLL NO.
+3. NAME OF STUDENT
+   - Display Father's Name directly below the student's name in the same cell.
+   - Father's Name should appear in smaller secondary text.
+4. MARKS
+   - Editable marks input box.
+5. STATUS
+   - Pending, Saved, or Submitted as appropriate.
+
+Remove unnecessary columns and redundant student information from the marks-entry table.
+
+Preserve existing marks validation, minimum/maximum marks settings, auto-save, and final submission workflow.
+
+# PART 6 – EXCEL IMPORT AND EXPORT FOR INCHARGES
+
+Currently, Incharges have an Excel Export option. Add an equally clear Excel Import option.
+
+## A. Export Excel
+
+The exported Excel file should contain these main columns:
+
+- SN.
+- ROLL NO.
+- NAME OF STUDENT.
+- FATHER'S NAME.
+- MARKS.
+- STATUS.
+
+Requirements:
+
+- Export actual student records from the selected subject and form.
+- Include necessary student IDs, Form ID, and Subject ID as protected or hidden mapping information if needed.
+- Keep the main worksheet simple and easy to fill.
+- Do not display unnecessary technical fields.
+
+## B. Import Excel
+
+Add an Import Excel button beside Export Excel.
+
+Workflow:
+
+1. Incharge downloads the Excel file.
+2. Enters marks in the file.
+3. Uploads the completed file.
+4. Previews and validates the data.
+5. Confirms the import.
+6. Marks are saved to existing Firestore records.
+
+Validation:
+
+- Match students using stable student IDs wherever available.
+- Verify Form ID and Subject ID.
+- Do not rely only on SN. or student name.
+- Validate roll number and student identity.
+- Never create duplicate students.
+- Never change student names, roll numbers, father's names, or allocations through marks import.
+- Reject files belonging to another form, subject, or examination.
+- Update only marks and permitted status fields.
+
+Before importing, show:
+
+- Total rows.
+- Valid rows.
+- Invalid rows.
+- Duplicate rows.
+- Students not found.
+- Marks outside permitted range.
+
+Show clear row-wise error messages. Never silently ignore invalid records.
+
+After confirmation:
+
+- Save imported marks to Firestore.
+- Show success only after confirmed database writes.
+- Do not create duplicate marks records.
+- Refresh must restore imported marks from Firestore.
+- Follow existing auto-save, validation, final submission, and locking rules.
+
+If a form has multiple subjects, import must remain strictly subject-specific.
+
+# PART 7 – MULTIPLE SUBJECTS IN ONE PRACTICAL FORM
+
+Admin must be able to allot multiple practical subjects to the same Incharge within one Practical Form.
+
+Example:
+
+Incharge Name: Kunal Singh
+
+Subjects:
+- GEOGRAPHY
+- BOTANY
+- ZOOLOGY
+
+Admin should be able to assign all these subjects under the same Incharge and the same Practical Form.
+
+## A. Create and Edit Practical Form
+
+- Add a multi-select practical subject selection option.
+- Admin can select one or multiple subjects.
+- Admin can add or remove subjects while creating a form.
+- Admin can edit an existing form and add additional subjects.
+- Display all selected subjects clearly before saving.
+- Reuse existing subject IDs and Firestore references.
+- Do not store multiple subjects as a single comma-separated text field.
+
+## B. Incharge Name Display
+
+- Display the Incharge's name prominently at the top of the form.
+- Example: Incharge: Kunal Singh.
+- Display all subjects allotted to that Incharge below the name.
+- Incharge should be able to identify and switch between subjects easily.
+
+## C. Separate Subject-wise Marks
+
+- Each subject must have its own marks-entry section.
+- Each subject must display only its own allocated students.
+- Keep marks, validation, auto-save, submission status, and reports separate for every subject.
+- Import and Export must work separately for each subject.
+- Use subject tabs or a clear subject selector.
+- Never mix students or marks between subjects.
+
+## D. Edit Existing Forms
+
+- Display current Incharge and all assigned subjects.
+- Allow Admin to add or remove subjects.
+- Before removing a subject, show a confirmation warning.
+- If marks or submissions already exist, preserve historical records and use archive/deactivation where appropriate.
+- Keep existing links and tokens working.
+- Do not unnecessarily regenerate existing tokens.
+
+# PART 8 – STAFF TOKEN PAGE: THREE-STEP SORTING SYSTEM
+
+On the Staff/Incharge page that opens through the existing token link, add a clearly visible sorting button or sorting control at the top of the student list.
+
+The sorting control must cycle through three modes on successive clicks.
+
+Display the current sorting mode clearly so the Incharge knows which arrangement is active.
+
+## SORT MODE 1 – ROLL NUMBER ASCENDING
+
+On the first click:
+
+- Sort all currently visible students by Roll Number in ascending order.
+- Example: 1, 2, 3, 4, 5, 6...
+- Numeric Roll Numbers must be compared numerically, not alphabetically.
+- Handle leading zeros correctly.
+- For alphanumeric Roll Numbers, use sensible natural sorting.
+- Keep student marks and other information attached to the correct student.
+
+Display a label such as: "Sort: Roll No. ↑"
+
+## SORT MODE 2 – PENDING MARKS FIRST
+
+On the second click:
+
+- Students whose marks have already been entered and saved should appear below.
+- Students whose marks are still pending should appear at the top.
+- Keep pending students in ascending Roll Number order.
+- Keep completed students in ascending Roll Number order.
+- A valid saved mark counts as completed.
+- Empty or invalid marks count as pending.
+- Use actual current Firestore marks status, not an unreliable temporary frontend value.
+
+Display a label such as: "Sort: Pending First"
+
+## SORT MODE 3 – PROMOTED STUDENTS FIRST
+
+On the third click:
+
+- Automatically identify Regular and Promoted students using the first two numeric digits of their Roll Number.
+- The highest numeric two-digit prefix present in the selected student roster represents the Regular batch.
+- Students with this highest prefix are classified as Regular.
+- Students with lower valid prefixes are classified as Promoted.
+- Show Promoted students at the top.
+- Show Regular students below them.
+- Within both groups, keep Roll Numbers in ascending natural order.
+
+Example:
+
+| Roll Number | Classification |
+|---|---|
+| 23001 | Promoted |
+| 24005 | Promoted |
+| 25001 | Regular |
+| 25002 | Regular |
+
+In this example, 25 is the highest prefix, so 25-series students are Regular and 23/24-series students are Promoted.
+
+IMPORTANT CLASSIFICATION RULES:
+
+1. Extract the first two numeric digits from the beginning of the Roll Number.
+2. Compare the available prefixes numerically.
+3. Use the highest valid prefix in the selected roster as the Regular batch.
+4. All lower valid prefixes are Promoted.
+5. Do not guess classifications from student names, SN., or marks.
+6. If a Roll Number has no valid two-digit prefix, classify it as "Unclassified" and show it separately.
+7. Do not silently classify malformed Roll Numbers.
+8. If multiple batches have the same highest prefix, all students in that prefix are Regular.
+9. Provide an Admin-controlled correction/override mechanism only if the existing architecture supports it, without changing the automatic default rule.
+10. Classification must not modify the actual Roll Number or student academic records.
+
+Display clear labels such as:
+- Promoted
+- Regular
+- Unclassified
+
+Display the current mode as: "Sort: Promoted First"
+
+## SORT BUTTON CYCLE
+
+The same sorting button should cycle through the modes:
+
+1st click → Roll Number Ascending
+
+2nd click → Pending Marks First
+
+3rd click → Promoted Students First
+
+4th click → Return to Roll Number Ascending
+
+The sorting must be performed without reloading the page or changing marks.
+
+IMPORTANT:
+- Sorting must never change student allocation.
+- Sorting must never change marks or status.
+- Sorting must never create, delete, or update Firestore records.
+- Sorting must work independently for each selected subject.
+- Sorting must remain compatible with the existing auto-save and submission system.
+- Sorting must not break Excel Import/Export.
+- Keep the original student-to-marks mapping intact.
+
+# PART 9 – GLOBAL LIVE STUDENT SEARCH ON STAFF TOKEN PAGE
+
+Add a prominent Search box at the top of the Staff/Incharge token page.
+
+The search must work across all students and all subjects accessible to the currently authenticated token.
+
+Search by either:
+
+- Student Name
+- Roll Number
+
+## A. LIVE CHARACTER-BY-CHARACTER SEARCH
+
+Search should start working from the very first typed character.
+
+Examples:
+
+- If the Incharge types "A", show/highlight all matching student names or Roll Numbers containing or beginning with A, according to the search matching rules.
+- If the Incharge types "AB", refine the results to records matching the combined text "AB".
+- If the Incharge types "ABC", refine again.
+- Each additional character must update results immediately.
+- Backspace must also update results immediately.
+- Search must be case-insensitive.
+- Ignore unnecessary leading and trailing spaces.
+
+## B. SEARCH NAME AND ROLL NUMBER
+
+- If the entered text matches a student name, show that student's record.
+- If it matches a Roll Number, show that student's record.
+- Support partial name matching.
+- Support partial Roll Number matching.
+- Do not require the user to select a separate search category.
+- Detect matching records automatically.
+- If a search term matches both a name and a Roll Number, show all relevant matching records.
+
+## C. HIGHLIGHT MATCHING RESULTS
+
+- Highlight the matching text in the student name or Roll Number.
+- Update the highlight after every typed character.
+- Show matching students directly below the search box or highlight them in the existing list.
+- Keep the rest of the student table readable.
+- Clearly indicate when no matching student is found.
+- Provide a clear/reset search option.
+- Clearing the search must restore the currently selected sorting order.
+
+## D. GLOBAL SEARCH SCOPE
+
+The search must cover all students belonging to all subjects assigned to the currently opened Staff/Incharge token.
+
+For example, if Kunal Singh has GEOGRAPHY, BOTANY, and ZOOLOGY assigned in one form, searching from the token page should be able to find students across these assigned subjects.
+
+However:
+
+- Never expose students from another Incharge's forms.
+- Never expose unassigned subjects.
+- Never bypass token authorization.
+- Search only the records the current token is authorized to access.
+
+## E. SEARCH AND SORT COMPATIBILITY
+
+- Search and sorting must work together.
+- Search should filter the authorized student records first.
+- The selected sorting mode should then arrange the matching results.
+- Highlighting must remain visible after sorting.
+- Changing subjects must update the search scope correctly.
+- Clearing the search must restore the full list under the current sorting mode.
+- Search must not modify any Firestore records or marks.
+
+# PART 10 – REMOVE UNNECESSARY DEVELOPER AND DEPLOYMENT CONTENT
+
+The application is already deployed and operational.
+
+Remove unnecessary developer-facing and deployment-related content from the actual user-facing portal.
+
+Examples:
+
+- Vercel Deploy Guide.
+- Deployment Guide.
+- GitHub Setup Guide.
+- Firebase Setup Instructions.
+- Environment Variable Setup Instructions.
+- Seed Sample Architecture.
+- Sample Data Setup.
+- Development Instructions.
+- First-Time Developer Guide.
+- Unnecessary technical documentation.
+- Irrelevant developer buttons, cards, and links.
+
+Requirements:
+
+1. Inspect Dashboard, Sidebar, Footer, Settings, Help sections, and other user-facing pages.
+2. Remove only unnecessary developer/setup/deployment information from the portal UI.
+3. Keep useful Admin functionality, security settings, Activity Logs, and working modules.
+4. Do not delete backend configuration or deployment files required to run the application.
+5. Do not modify GitHub or Vercel deployment configuration unnecessarily.
+6. Do not display seed/sample data instructions to normal users or Admins.
+7. Keep the portal focused on college practical examination and marks management.
+
+# PART 11 – ORGANIZE EXISTING ADMIN SIDEBAR
+
+Reorganize the existing sidebar into collapsible groups in this order.
+
+DEFAULT BEHAVIOUR:
+
+- After successful Admin login, all sidebar groups must be COLLAPSED by default.
+- Do not automatically expand all groups.
+- Clicking a group heading expands its submenu.
+- Clicking the same heading again collapses it.
+- Prefer an accordion-style layout with one group expanded at a time.
+- Clearly highlight the active page and its parent group.
+- Keep Dashboard separately accessible at the top.
+- Keep My Account at the bottom.
+- Preserve all existing routes and working navigation.
+- On fresh login, return to the default collapsed state.
+- Ensure responsive desktop and mobile behaviour.
+
+## REQUIRED SIDEBAR ORDER
+
+### 1. Dashboard
+- Dashboard Overview
+
+### 2. Academic Management
+- Session Management
+- Semester Management
+- Subject Type Management
+- Paper Management
+- Practical Subject Management
+- Department Management
+- Subject Group Management
+
+### 3. Student Management
+- Student List
+- Student Records
+- Excel Upload
+- Student Allocation
+- Student Import History, if already available
+
+### 4. Examination Management
+- Practical Form Builder
+- Practical Forms
+- Incharge Management
+- Examiner Management
+- Subject Assignments
+- Marks Management
+- Marks Monitoring
+- Form Link Management
+- Token Management
+
+### 5. Reports & Exports
+- Export Center
+- Examination Reports
+- Subject-wise Reports
+- Student-wise Reports
+- Analytics
+
+### 6. Administration
+- Admin Management, if already available
+- Activity Logs
+- System Settings
+- Security Settings, if already available
+
+### 7. My Account
+- My Profile
+- Change Password
+- Logout
+
+SIDEBAR RULES:
+
+- Reuse existing pages and routes.
+- Do not create duplicate menu items.
+- Do not remove any existing working feature.
+- Place other useful existing modules under the most appropriate group.
+- Use consistent icons, spacing, typography, and alignment.
+- Make sure every submenu item works correctly.
+
+# PART 12 – COMPLETE ERROR AUDIT
+
+Inspect the existing codebase for errors in all relevant modules.
+
+Check:
+
+- Firebase initialization and connectivity.
+- Environment variable configuration.
+- Authentication and authorization.
+- Admin Dashboard.
+- Session Management.
+- Semester Management.
+- Subject Type and Paper Management.
+- Practical Subject Management.
+- Department and Group Management.
+- Student Management and Excel Upload.
+- Student Allocation.
+- Practical Form Builder.
+- Multiple Subject Assignments.
+- Incharge and Examiner access.
+- Marks Entry.
+- Excel Import and Export.
+- Auto-save and Final Submission.
+- Staff token page sorting and search.
+- Regular/Promoted classification.
+- Reports and Analytics.
+- Activity Logs.
+- Admin Settings and Profile.
+- Sidebar navigation and routing.
+- All related APIs and database operations.
+
+Check for:
+
+- JavaScript and TypeScript errors.
+- Build and compilation errors.
+- Runtime errors.
+- Firebase permission errors.
+- Incorrect Firestore document references.
+- Missing document IDs.
+- Duplicate Firestore listeners.
+- Memory leaks.
+- Race conditions.
+- Invalid or missing data handling.
+- Broken navigation and dropdowns.
+- Excel import/export errors.
+- Unauthorized database operations.
+- Incorrect environment variable references.
+- Console errors and failed API requests.
+- Incorrect sorting for numeric/alphanumeric Roll Numbers.
+- Incorrect Regular/Promoted classification.
+- Search failures for partial names and Roll Numbers.
+- Search and sorting conflicts.
+
+Fix only errors relevant to the existing application and requested improvements. Avoid unrelated refactoring.
+
+# PART 13 – FIRESTORE DATA INTEGRITY AND SECURITY
+
+- Firebase Firestore must remain the authoritative database.
+- Do not introduce localStorage, sessionStorage, or IndexedDB as an alternative database for important records.
+- Preserve all existing valid data and historical examination records.
+- Do not reset or recreate collections.
+- Do not reintroduce deleted records through seed data.
+- Verify Firestore Security Rules and server-side authorization.
+- Protect all privileged Admin operations.
+- Ensure Incharges can only access their authorized forms, subjects, and marks.
+- Preserve existing authentication, form links, and examiner tokens.
+- Sorting and search must not modify student records or marks.
+
+# PART 14 – MANDATORY TESTING
+
+Do not just inspect the code and claim that everything is working. Actually execute the available checks.
+
+## A. Environment Configuration
+1. Verify all required Firebase variables are available.
+2. Verify the correct framework-specific environment variable convention.
+3. Verify Firebase initializes successfully.
+4. Verify the repeated Environment Variables prompt no longer appears when configuration is present.
+
+## B. Real-Time Synchronization
+1. Open the application in two separate browser sessions.
+2. Add a record in one session.
+3. Verify it appears automatically in the other session.
+4. Edit the record and verify the update.
+5. Delete or archive the record and verify that it disappears from both sessions without refreshing.
+6. Refresh both sessions and confirm deleted records do not return.
+
+## C. Excel Import/Export
+1. Export the actual subject-wise student list.
+2. Fill marks in the exported Excel file.
+3. Import the file.
+4. Verify student matching and validation.
+5. Verify correct Firestore updates.
+6. Test invalid marks and mismatched files.
+7. Verify that no duplicate student or marks records are created.
+
+## D. Multiple Subjects
+1. Assign at least two existing subjects to one Incharge.
+2. Verify the same form displays the Incharge name and all assigned subjects.
+3. Verify each subject shows only its own students.
+4. Verify subject-wise marks, import, export, and submission remain separate.
+
+## E. Staff Sorting
+Use actual existing student records wherever possible.
+
+1. Verify first click sorts Roll Numbers in ascending natural order.
+2. Verify second click places pending marks above saved marks.
+3. Verify third click places Promoted students above Regular students.
+4. Verify classification using the first two numeric Roll Number digits.
+5. Verify the highest available prefix is classified as Regular.
+6. Verify malformed Roll Numbers are shown as Unclassified.
+7. Verify fourth click returns to ascending Roll Number order.
+8. Verify sorting does not change student data, marks, or Firestore records.
+
+## F. Staff Global Search
+1. Search using one alphabet.
+2. Verify all relevant matches are shown/highlighted.
+3. Enter a second alphabet and verify results refine using both characters.
+4. Test partial student names.
+5. Test partial Roll Numbers.
+6. Test lowercase and uppercase input.
+7. Test backspace and clear search.
+8. Verify search across all subjects assigned to the current token.
+9. Verify no unauthorized students are exposed.
+10. Verify search and sorting work together.
+
+## G. Sidebar and Production UI
+1. Verify unnecessary deployment/developer content is removed from the portal UI.
+2. Verify all sidebar groups are collapsed by default after login.
+3. Verify expanding and collapsing groups.
+4. Verify active page highlighting.
+5. Verify existing navigation routes.
+6. Verify responsive behaviour.
+
+## H. Existing Functionality
+1. Verify Admin login.
+2. Verify Incharge access and permissions.
+3. Verify student allocations.
+4. Verify Practical Form links and subject assignments.
+5. Verify marks auto-save.
+6. Verify final submission and locking.
+7. Verify reports and dashboard counters.
+8. Verify Activity Logs.
+
+## I. Production Checks
+1. Run the available production build.
+2. Run available TypeScript checks.
+3. Run available linting checks.
+4. Fix all relevant errors discovered.
+5. Repeat failed tests after corrections.
+
+If a test cannot be executed due to missing credentials, unavailable services, or environmental limitations, report it as NOT VERIFIED. Never falsely claim success.
+
+# PART 15 – STRICT FINAL RESTRICTIONS
+
+1. No new application.
+2. No complete rewrite.
+3. No unnecessary UI redesign.
+4. No unnecessary database schema changes.
+5. No deletion or resetting of existing valid data.
+6. No removal of working features.
+7. No unnecessary dependency changes.
+8. No replacement of the existing Firebase project.
+9. No breaking existing form links or tokens.
+10. No unrelated refactoring.
+11. No false test-success claims.
+12. Preserve the current GitHub and Vercel deployment architecture.
+13. Do not modify student marks or academic records merely to implement sorting or search.
+14. Do not change the existing academic workflow.
+
+Make only the requested upgrades and necessary bug fixes.
+
+# FINAL COMPLETION REPORT
+
+After implementation, provide an honest and concise report:
+
+1. Files/components modified.
+2. Root cause of repeated Environment Variables prompt.
+3. Firebase configuration fixes completed.
+4. Real-time synchronization fixes completed.
+5. Delete/update persistence fixes completed.
+6. Incharge Excel Import/Export completed.
+7. Multiple Subject assignment completed.
+8. Staff three-mode sorting completed.
+9. Automatic Regular/Promoted classification completed.
+10. Staff global live search completed.
+11. Unnecessary developer/deployment UI content removed.
+12. Sidebar grouping and collapsed behaviour completed.
+13. Errors discovered and fixed.
+14. Production build result.
+15. Tests actually executed and their results.
+16. Any remaining issue that could not be verified.
+
+FINAL OBJECTIVE:
+
+Keep my existing ERP exactly as it is in terms of its established design, architecture, data, and working features, while implementing only the requested improvements.
+
+**MAKE SMALL, SAFE, TARGETED UPDATES. PRESERVE THE EXISTING WORKING APPLICATION. NEVER REBUILD OR REPLACE IT.**
