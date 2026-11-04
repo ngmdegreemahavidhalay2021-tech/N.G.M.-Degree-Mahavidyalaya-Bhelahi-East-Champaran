@@ -48,6 +48,7 @@ import {
   getExaminerAssignments,
   getPaperStudents,
   getAssignmentMarks,
+  getFormActiveSubjects,
 } from '../services/collegeService';
 import { exportExaminerAssignmentMarksheetExcel } from '../lib/collegeExport';
 
@@ -84,6 +85,7 @@ export const ReportsModule: React.FC<ReportsModuleProps> = ({
   const [selectedSubjectType, setSelectedSubjectType] = useState<string>('ALL');
   const [selectedPaperName, setSelectedPaperName] = useState<string>('ALL');
   const [selectedSubjectName, setSelectedSubjectName] = useState<string>('ALL');
+  const [selectedInchargeName, setSelectedInchargeName] = useState<string>('ALL');
   const [selectedStatus, setSelectedStatus] = useState<string>('ALL');
   const [searchQuery, setSearchQuery] = useState('');
 
@@ -126,18 +128,140 @@ export const ReportsModule: React.FC<ReportsModuleProps> = ({
       setSessions(sList);
       setPracticalSubjects(pSubjs);
       setPapers(pList);
-      setAssignments(aList);
-      setPaperStudents(stdList);
 
-      // Pre-load marks for all assignments
-      const marksMap: Record<string, AssignmentMarkRecord[]> = {};
+      // Fetch enrollments and marks for all practicalForms to build subject-wise report units
+      const formsWithData = await Promise.all(
+        forms.map(async (form) => {
+          const [enrs, mrks] = await Promise.all([
+            getFormEnrollments(form.id).catch(() => []),
+            getFormMarks(form.id).catch(() => []),
+          ]);
+          return { form, enrs, mrks };
+        })
+      );
+
+      const reportItems: ExaminerAssignment[] = [];
+      const reportMarksMap: Record<string, AssignmentMarkRecord[]> = {};
+      const reportStudents: PaperStudent[] = [...stdList];
+
+      // Unbundle each practicalForm by its assigned practical subjects
+      formsWithData.forEach(({ form, enrs, mrks }) => {
+        const activeSubjs = getFormActiveSubjects(form);
+        const subjs =
+          activeSubjs.length > 0
+            ? activeSubjs
+            : [
+                {
+                  subjectName: form.subjectName || 'GEOGRAPHY',
+                  subjectCode: form.subjectCode || 'GEOG',
+                  studentCount: enrs.length,
+                  status: 'active' as const,
+                },
+              ];
+
+        subjs.forEach((s) => {
+          const cleanSubj = s.subjectName.trim().toUpperCase();
+          const unitId = `${form.id}__${cleanSubj.replace(/[^a-zA-Z0-9]/g, '_')}`;
+
+          const subjEnrs = enrs.filter(
+            (e) => (e.subject || form.subjectName || '').trim().toUpperCase() === cleanSubj
+          );
+
+          const subjMarks = mrks.filter(
+            (m) => (m.subject || form.subjectName || '').trim().toUpperCase() === cleanSubj
+          );
+
+          let evaluated = 0;
+          let absent = 0;
+          const mappedMarks: AssignmentMarkRecord[] = subjMarks.map((m) => {
+            if (!m.isPresent) absent++;
+            else if (m.marksObtained !== null && m.marksObtained !== undefined) evaluated++;
+            return {
+              id: m.id,
+              assignmentId: unitId,
+              studentId: m.studentId,
+              rollNumber: String(m.rollNumber || ''),
+              studentName: String(m.studentName || ''),
+              subject: cleanSubj,
+              marksObtained: m.marksObtained,
+              isPresent: m.isPresent,
+              remarks: m.remarks,
+              resultStatus: m.resultStatus as any,
+              updatedAt: m.updatedAt,
+              updatedBy: m.updatedBy,
+            };
+          });
+
+          const pending = Math.max(0, subjEnrs.length - (evaluated + absent));
+          const unitStatus =
+            form.status === 'closed'
+              ? 'Final Submitted'
+              : evaluated + absent === subjEnrs.length && subjEnrs.length > 0
+              ? 'Ready to Submit'
+              : evaluated + absent > 0
+              ? 'In Progress'
+              : 'Not Started';
+
+          const asgnItem: ExaminerAssignment = {
+            id: unitId,
+            session: form.session || form.examYear || '2025-29',
+            semester: form.semester || 'Semester 2',
+            subjectType: (form.subjectType as any) || 'MJC',
+            paperId: form.id,
+            paperName: form.paperName || form.examName || 'MJ5',
+            subjectName: cleanSubj,
+            examinerName: form.inchargeName || 'Internal Incharge',
+            inchargeName: form.inchargeName || 'Internal Incharge',
+            maxMarks: form.maxMarks,
+            minMarks: form.minPassingMarks ?? Math.round(form.maxMarks * 0.33),
+            allowDecimals: form.allowDecimals ?? false,
+            totalStudents: subjEnrs.length,
+            evaluatedCount: evaluated,
+            absentCount: absent,
+            pendingCount: pending,
+            status: unitStatus as any,
+            isLocked: form.status === 'closed' || form.isStudentListLocked,
+            token: form.token,
+            createdAt: form.createdAt,
+            updatedAt: form.updatedAt,
+          };
+
+          reportItems.push(asgnItem);
+          reportMarksMap[unitId] = mappedMarks;
+
+          subjEnrs.forEach((e) => {
+            reportStudents.push({
+              id: e.studentId,
+              rollNumber: String(e.rollNumber || ''),
+              studentName: String(e.studentName || ''),
+              fatherName: String(e.fatherName || '-'),
+              subject: cleanSubj,
+              paperId: form.id,
+              session: form.session || form.examYear || '2025-29',
+              semester: form.semester || 'Semester 2',
+              subjectType: (form.subjectType as any) || 'MJC',
+              status: 'active',
+              createdAt: form.createdAt,
+            });
+          });
+        });
+      });
+
+      // Also include any legacy examinerAssignments documents
+      aList.forEach((asgn) => {
+        reportItems.push(asgn);
+      });
+
       await Promise.all(
         aList.map(async (asgn) => {
           const mList = await getAssignmentMarks(asgn.id).catch(() => []);
-          marksMap[asgn.id] = mList;
+          reportMarksMap[asgn.id] = mList;
         })
       );
-      setAssignmentMarksMap(marksMap);
+
+      setAssignments(reportItems);
+      setAssignmentMarksMap(reportMarksMap);
+      setPaperStudents(reportStudents);
     } catch (err) {
       console.warn('Error loading CBCS report records:', err);
     } finally {
@@ -187,28 +311,31 @@ export const ReportsModule: React.FC<ReportsModuleProps> = ({
     if (selectedSemester !== 'ALL' && asgn.semester !== selectedSemester) return false;
     if (selectedSubjectType !== 'ALL' && asgn.subjectType !== selectedSubjectType) return false;
     if (selectedPaperName !== 'ALL' && asgn.paperName !== selectedPaperName) return false;
-    if (selectedSubjectName !== 'ALL' && asgn.subjectName !== selectedSubjectName) return false;
+    if (selectedSubjectName !== 'ALL' && asgn.subjectName.toUpperCase() !== selectedSubjectName.toUpperCase()) return false;
+    if (selectedInchargeName !== 'ALL' && asgn.inchargeName !== selectedInchargeName) return false;
     if (selectedStatus !== 'ALL' && asgn.status !== selectedStatus) return false;
     return true;
   });
 
   // Unique distinct values for dropdowns
   const sessionOptions = Array.from(
-    new Set([...ALL_ACADEMIC_SESSIONS, ...sessions.map((s) => s.sessionName)])
-  );
-  const paperNames = Array.from(new Set(papers.map((p) => p.paperName)));
+    new Set([...ALL_ACADEMIC_SESSIONS, ...assignments.map((a) => a.session), ...sessions.map((s) => s.sessionName)])
+  ).filter(Boolean);
+  const paperNames = Array.from(new Set([...assignments.map((a) => a.paperName), ...papers.map((p) => p.paperName)])).filter(Boolean);
   const practicalSubjectNames = Array.from(
-    new Set(practicalSubjects.map((s) => s.name))
-  );
+    new Set([...assignments.map((a) => a.subjectName), ...practicalSubjects.map((s) => s.name)])
+  ).filter(Boolean).sort();
+  const inchargeNames = Array.from(new Set(assignments.map((a) => a.inchargeName).filter(Boolean))).sort();
 
   // Compute aggregate numbers for filtered CBCS assignments
   const totalEnrolledCandidates = filteredAssignments.reduce((acc, a) => acc + (a.totalStudents || 0), 0);
   const totalEvaluatedCandidates = filteredAssignments.reduce((acc, a) => acc + (a.evaluatedCount || 0), 0);
   const totalAbsentCandidates = filteredAssignments.reduce((acc, a) => acc + (a.absentCount || 0), 0);
   const totalPendingCandidates = filteredAssignments.reduce((acc, a) => acc + (a.pendingCount || 0), 0);
-  const overallRate = totalEnrolledCandidates > 0
-    ? (((totalEvaluatedCandidates + totalAbsentCandidates) / totalEnrolledCandidates) * 100).toFixed(1)
-    : '0.0';
+  const overallRate =
+    totalEnrolledCandidates > 0
+      ? (((totalEvaluatedCandidates + totalAbsentCandidates) / totalEnrolledCandidates) * 100).toFixed(1)
+      : '0.0';
 
   const toggleAccordion = (id: string) => {
     setExpandedAssignments((prev) => ({ ...prev, [id]: !prev[id] }));
@@ -560,7 +687,7 @@ export const ReportsModule: React.FC<ReportsModuleProps> = ({
         <div className="space-y-6">
           {/* Filters Bar */}
           <div className="bg-slate-900 border border-slate-800 p-4 rounded-2xl shadow-xl space-y-4">
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-7 gap-3">
               {/* Session Selector */}
               <div>
                 <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">
@@ -642,6 +769,23 @@ export const ReportsModule: React.FC<ReportsModuleProps> = ({
                   <option value="ALL">All Subjects</option>
                   {practicalSubjectNames.map((s) => (
                     <option key={s} value={s}>{s}</option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Incharge Name Selector */}
+              <div>
+                <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">
+                  Incharge Name
+                </label>
+                <select
+                  value={selectedInchargeName}
+                  onChange={(e) => setSelectedInchargeName(e.target.value)}
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-2.5 py-1.5 text-xs text-slate-200 focus:outline-none focus:border-blue-500 font-medium"
+                >
+                  <option value="ALL">All Incharges</option>
+                  {inchargeNames.map((inc) => (
+                    <option key={inc} value={inc}>{inc}</option>
                   ))}
                 </select>
               </div>

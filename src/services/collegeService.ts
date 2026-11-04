@@ -386,17 +386,34 @@ export async function getPracticalFormById(id: string): Promise<PracticalForm | 
 }
 
 export async function getPracticalFormByToken(token: string): Promise<PracticalForm | null> {
+  const clean = (token || '').trim();
+  if (!clean) return null;
+
   try {
-    const q = query(collection(db, 'practicalForms'), where('token', '==', token), limit(1));
+    // 1. Primary lookup by token field
+    const q = query(collection(db, 'practicalForms'), where('token', '==', clean), limit(1));
     const snap = await getDocs(q);
-    if (snap.empty) return null;
-    const docData = snap.docs[0];
-    const data = docData.data() as any;
-    const maxMarks = Number(data.maxMarks) || 50;
-    const minPassingMarks = data.minPassingMarks !== undefined ? Number(data.minPassingMarks) : Math.round(maxMarks * 0.33);
-    return { id: docData.id, ...data, maxMarks, minPassingMarks } as PracticalForm;
-  } catch (err) {
-    handleFirestoreError(err, OperationType.GET, `practicalForms/by-token/${token}`);
+    if (!snap.empty) {
+      const docData = snap.docs[0];
+      const data = docData.data() as any;
+      const maxMarks = Number(data.maxMarks) || 50;
+      const minPassingMarks = data.minPassingMarks !== undefined ? Number(data.minPassingMarks) : Math.round(maxMarks * 0.33);
+      return { id: docData.id, ...data, maxMarks, minPassingMarks } as PracticalForm;
+    }
+
+    // 2. Fallback lookup by document ID
+    const directSnap = await getDoc(doc(db, 'practicalForms', clean));
+    if (directSnap.exists()) {
+      const data = directSnap.data() as any;
+      const maxMarks = Number(data.maxMarks) || 50;
+      const minPassingMarks = data.minPassingMarks !== undefined ? Number(data.minPassingMarks) : Math.round(maxMarks * 0.33);
+      return { id: directSnap.id, ...data, maxMarks, minPassingMarks } as PracticalForm;
+    }
+
+    return null;
+  } catch (err: any) {
+    console.error('getPracticalFormByToken error:', err);
+    throw err;
   }
 }
 
@@ -2088,12 +2105,25 @@ export async function getExaminerAssignments(filters?: {
 }
 
 export async function getExaminerAssignmentByToken(token: string): Promise<ExaminerAssignment | null> {
+  const clean = (token || '').trim();
+  if (!clean) return null;
+
   try {
-    const q = query(collection(db, 'examinerAssignments'), where('token', '==', token.trim()), limit(1));
+    // 1. Primary lookup by token field
+    const q = query(collection(db, 'examinerAssignments'), where('token', '==', clean), limit(1));
     const snap = await getDocs(q);
-    if (snap.empty) return null;
-    const docData = snap.docs[0];
-    return { id: docData.id, ...docData.data() } as ExaminerAssignment;
+    if (!snap.empty) {
+      const docData = snap.docs[0];
+      return { id: docData.id, ...docData.data() } as ExaminerAssignment;
+    }
+
+    // 2. Fallback lookup by document ID
+    const directSnap = await getDoc(doc(db, 'examinerAssignments', clean));
+    if (directSnap.exists()) {
+      return { id: directSnap.id, ...directSnap.data() } as ExaminerAssignment;
+    }
+
+    return null;
   } catch (err) {
     console.warn('Error fetching assignment by token:', err);
     return null;

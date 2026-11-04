@@ -71,11 +71,30 @@ import {
 } from './services/collegeService';
 import { fetchBootstrapStatus } from './services/examService';
 
+function getInitialToken(): string | null {
+  if (typeof window === 'undefined') return null;
+  try {
+    const params = new URLSearchParams(window.location.search);
+    const token = params.get('token') || params.get('key');
+    if (token && token.trim()) return token.trim();
+
+    if (window.location.hash) {
+      const hashStr = window.location.hash.replace(/^#\/?/, '?');
+      const hashParams = new URLSearchParams(hashStr);
+      const hashToken = hashParams.get('token') || hashParams.get('key');
+      if (hashToken && hashToken.trim()) return hashToken.trim();
+    }
+  } catch (e) {
+    console.warn('Error reading URL token:', e);
+  }
+  return null;
+}
+
 export default function App() {
   // Navigation & View State
   const [activeModule, setActiveModule] = useState<SidebarModuleKey>('overview');
   const [selectedFormForMarks, setSelectedFormForMarks] = useState<string | undefined>();
-  const [publicFormToken, setPublicFormToken] = useState<string | null>(null);
+  const [publicFormToken, setPublicFormToken] = useState<string | null>(getInitialToken);
 
   // College Data Models
   const [departments, setDepartments] = useState<Department[]>([]);
@@ -97,7 +116,7 @@ export default function App() {
   const [bootstrapStatus, setBootstrapStatus] = useState<SystemBootstrapStatus | null>(null);
   const [admin, setAdmin] = useState<AdminProfile | null>(null);
   const [collegeName, setCollegeName] = useState('NGM Degree Mahavidyalaya');
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(!getInitialToken());
 
   // Appearance Customization State
   const [appearanceSettings, setAppearanceSettings] = useState<AppearanceSettings>({
@@ -153,17 +172,20 @@ export default function App() {
 
   // Read URL query params on boot
   useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    const token = params.get('token') || params.get('key');
+    const token = getInitialToken();
     if (token) {
       setPublicFormToken(token);
+      setLoading(false);
+      return;
     }
 
     initSystem();
   }, []);
 
-  // Real-time Firestore synchronization across all screens & tabs
+  // Real-time Firestore synchronization across all screens & tabs (only when in admin portal)
   useEffect(() => {
+    if (publicFormToken) return;
+
     const unsubs: Array<() => void> = [];
 
     const unsubDepts = subscribeToDepartments((liveDepts) => {
@@ -332,6 +354,21 @@ export default function App() {
     setAdmin(null);
   };
 
+  // Public Teacher / Examiner Form Route (Render immediately if token URL is opened)
+  if (publicFormToken) {
+    return (
+      <PublicPracticalForm
+        token={publicFormToken}
+        collegeName={collegeName}
+        onExit={() => {
+          setPublicFormToken(null);
+          window.history.replaceState({}, '', window.location.pathname);
+          initSystem();
+        }}
+      />
+    );
+  }
+
   // Loading screen with institutional seal
   if (loading) {
     return (
@@ -348,20 +385,6 @@ export default function App() {
           <span>Connecting to Firebase Firestore...</span>
         </div>
       </div>
-    );
-  }
-
-  // Public Teacher / Examiner Form Route
-  if (publicFormToken) {
-    return (
-      <PublicPracticalForm
-        token={publicFormToken}
-        collegeName={collegeName}
-        onExit={() => {
-          setPublicFormToken(null);
-          window.history.replaceState({}, '', '/');
-        }}
-      />
     );
   }
 
