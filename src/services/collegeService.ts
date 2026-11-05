@@ -14,7 +14,7 @@ import {
   onSnapshot,
   Unsubscribe,
 } from 'firebase/firestore';
-import { db, handleFirestoreError, OperationType } from '../lib/firebase';
+import { db, auth, handleFirestoreError, OperationType } from '../lib/firebase';
 import {
   Department,
   Subject,
@@ -68,25 +68,79 @@ export async function logActivity(
   }
 }
 
+/**
+ * Robust subscription helper conforming to Firebase Architecture constraints:
+ * 1. Performs instant data fetching via getDocs (which avoids gRPC Listen stream errors).
+ * 2. Only attaches real-time onSnapshot stream if the user has an active Firebase Auth session.
+ * 3. Keeps data fresh via gentle periodic polling when unauthenticated.
+ */
+function safeSubscribe<T>(
+  queryOrCol: any,
+  fetchFn: () => Promise<T>,
+  onUpdate: (data: T) => void,
+  onError?: (err: any) => void
+): Unsubscribe {
+  let active = true;
+
+  // Immediate fetch via standard getDocs / getDoc
+  fetchFn()
+    .then((data) => {
+      if (active && data !== undefined) onUpdate(data);
+    })
+    .catch((err) => {
+      if (active && onError) onError(err);
+    });
+
+  // Only attach onSnapshot stream when Firebase Auth session is active
+  if (auth.currentUser) {
+    try {
+      const unsub = onSnapshot(
+        queryOrCol,
+        () => {
+          if (!active) return;
+          fetchFn()
+            .then((data) => {
+              if (active && data !== undefined) onUpdate(data);
+            })
+            .catch(() => {});
+        },
+        (error) => {
+          console.warn('Real-time listener notice:', error?.message || error);
+          if (onError) onError(error);
+        }
+      );
+      return () => {
+        active = false;
+        unsub();
+      };
+    } catch (e) {
+      if (onError) onError(e);
+    }
+  }
+
+  // Periodic polling fallback for unauthenticated views (every 8s)
+  const timer = setInterval(() => {
+    if (!active) return;
+    fetchFn()
+      .then((data) => {
+        if (active && data !== undefined) onUpdate(data);
+      })
+      .catch(() => {});
+  }, 8000);
+
+  return () => {
+    active = false;
+    clearInterval(timer);
+  };
+}
+
 export function subscribeToActivityLogs(
   callback: (logs: ActivityLog[]) => void,
   limitCount = 150,
   onError?: (err: any) => void
 ): Unsubscribe {
   const q = query(collection(db, 'activityLogs'), orderBy('timestamp', 'desc'), limit(limitCount));
-  return onSnapshot(
-    q,
-    (snap) => {
-      const logs: ActivityLog[] = [];
-      snap.forEach((d) => logs.push({ id: d.id, ...d.data() } as ActivityLog));
-      callback(logs);
-    },
-    (error) => {
-      console.warn('Real-time activity logs subscription error:', error);
-      if (onError) onError(error);
-      else handleFirestoreError(error, OperationType.LIST, 'activityLogs');
-    }
-  );
+  return safeSubscribe(q, () => getActivityLogs(), callback, onError);
 }
 
 export async function getActivityLogs(): Promise<ActivityLog[]> {
@@ -108,20 +162,7 @@ export function subscribeToDepartments(
   onError?: (err: any) => void
 ): Unsubscribe {
   const colRef = collection(db, 'departments');
-  return onSnapshot(
-    colRef,
-    (snap) => {
-      const list: Department[] = [];
-      snap.forEach((d) => list.push({ id: d.id, ...d.data() } as Department));
-      list.sort((a, b) => a.name.localeCompare(b.name));
-      callback(list);
-    },
-    (error) => {
-      console.warn('Real-time departments subscription error:', error);
-      if (onError) onError(error);
-      else handleFirestoreError(error, OperationType.LIST, 'departments');
-    }
-  );
+  return safeSubscribe(colRef, () => getDepartments(), callback, onError);
 }
 
 export async function getDepartments(): Promise<Department[]> {
@@ -189,20 +230,7 @@ export function subscribeToSubjects(
 ): Unsubscribe {
   const colRef = collection(db, 'subjects');
   const q = departmentId ? query(colRef, where('departmentId', '==', departmentId)) : colRef;
-  return onSnapshot(
-    q,
-    (snap) => {
-      const list: Subject[] = [];
-      snap.forEach((d) => list.push({ id: d.id, ...d.data() } as Subject));
-      list.sort((a, b) => a.code.localeCompare(b.code));
-      callback(list);
-    },
-    (error) => {
-      console.warn('Real-time subjects subscription error:', error);
-      if (onError) onError(error);
-      else handleFirestoreError(error, OperationType.LIST, 'subjects');
-    }
-  );
+  return safeSubscribe(q, () => getSubjects(departmentId), callback, onError);
 }
 
 export async function getSubjects(departmentId?: string): Promise<Subject[]> {
@@ -325,30 +353,7 @@ export function subscribeToPracticalForms(
   onError?: (err: any) => void
 ): Unsubscribe {
   const colRef = collection(db, 'practicalForms');
-  return onSnapshot(
-    colRef,
-    (snap) => {
-      const list: PracticalForm[] = [];
-      snap.forEach((d) => {
-        const data = d.data() as any;
-        const maxMarks = Number(data.maxMarks) || 50;
-        const minPassingMarks = data.minPassingMarks !== undefined ? Number(data.minPassingMarks) : Math.round(maxMarks * 0.33);
-        list.push({
-          id: d.id,
-          ...data,
-          maxMarks,
-          minPassingMarks,
-        } as PracticalForm);
-      });
-      list.sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
-      callback(list);
-    },
-    (error) => {
-      console.warn('Real-time practical forms subscription error:', error);
-      if (onError) onError(error);
-      else handleFirestoreError(error, OperationType.LIST, 'practicalForms');
-    }
-  );
+  return safeSubscribe(colRef, () => getPracticalForms(), callback, onError);
 }
 
 export async function getPracticalForms(): Promise<PracticalForm[]> {
@@ -714,20 +719,7 @@ export function subscribeToStudents(
 ): Unsubscribe {
   const colRef = collection(db, 'students');
   const q = departmentId ? query(colRef, where('departmentId', '==', departmentId)) : colRef;
-  return onSnapshot(
-    q,
-    (snap) => {
-      const list: Student[] = [];
-      snap.forEach((d) => list.push({ id: d.id, ...d.data() } as Student));
-      list.sort((a, b) => a.rollNumber.localeCompare(b.rollNumber, undefined, { numeric: true }));
-      callback(list);
-    },
-    (error) => {
-      console.warn('Real-time students subscription error:', error);
-      if (onError) onError(error);
-      else handleFirestoreError(error, OperationType.LIST, 'students');
-    }
-  );
+  return safeSubscribe(q, () => getStudents(departmentId), callback, onError);
 }
 
 export async function getStudents(departmentId?: string): Promise<Student[]> {
@@ -818,34 +810,7 @@ export function subscribeToFormEnrollments(
   onError?: (err: any) => void
 ): Unsubscribe {
   const q = query(collection(db, 'formEnrollments'), where('practicalFormId', '==', practicalFormId));
-  const normSubj = subjectName ? subjectName.trim().toUpperCase() : null;
-
-  return onSnapshot(
-    q,
-    (snap) => {
-      const list: FormEnrollment[] = [];
-      snap.forEach((d) => {
-        const data = d.data() as FormEnrollment;
-        const record = { ...(data as object), id: d.id } as FormEnrollment;
-        if (normSubj) {
-          if (record.subject && record.subject.trim().toUpperCase() === normSubj) {
-            list.push(record);
-          } else if (!record.subject) {
-            list.push(record);
-          }
-        } else {
-          list.push(record);
-        }
-      });
-      list.sort((a, b) => a.rollNumber.localeCompare(b.rollNumber, undefined, { numeric: true }));
-      callback(list);
-    },
-    (error) => {
-      console.warn('Real-time form enrollments subscription error:', error);
-      if (onError) onError(error);
-      else handleFirestoreError(error, OperationType.LIST, 'formEnrollments');
-    }
-  );
+  return safeSubscribe(q, () => getFormEnrollments(practicalFormId, subjectName), callback, onError);
 }
 
 export async function getFormEnrollments(
@@ -1150,33 +1115,7 @@ export function subscribeToFormMarks(
   onError?: (err: any) => void
 ): Unsubscribe {
   const q = query(collection(db, 'marks'), where('practicalFormId', '==', practicalFormId));
-  const normSubj = subjectName ? subjectName.trim().toUpperCase() : null;
-
-  return onSnapshot(
-    q,
-    (snap) => {
-      const list: MarksRecord[] = [];
-      snap.forEach((d) => {
-        const data = d.data() as MarksRecord;
-        const record = { ...(data as object), id: d.id } as MarksRecord;
-        if (normSubj) {
-          if (record.subject && record.subject.trim().toUpperCase() === normSubj) {
-            list.push(record);
-          } else if (!record.subject) {
-            list.push(record);
-          }
-        } else {
-          list.push(record);
-        }
-      });
-      callback(list);
-    },
-    (error) => {
-      console.warn('Real-time form marks subscription error:', error);
-      if (onError) onError(error);
-      else handleFirestoreError(error, OperationType.LIST, 'marks');
-    }
-  );
+  return safeSubscribe(q, () => getFormMarks(practicalFormId, subjectName), callback, onError);
 }
 
 export async function getFormMarks(
@@ -1545,20 +1484,7 @@ export function subscribeToAcademicSessions(
   onError?: (err: any) => void
 ): Unsubscribe {
   const colRef = collection(db, 'academicSessions');
-  return onSnapshot(
-    colRef,
-    (snap) => {
-      const list: AcademicSession[] = [];
-      snap.forEach((d) => list.push({ id: d.id, ...d.data() } as AcademicSession));
-      list.sort((a, b) => a.sessionName.localeCompare(b.sessionName));
-      callback(list);
-    },
-    (error) => {
-      console.warn('Real-time academic sessions subscription error:', error);
-      if (onError) onError(error);
-      else handleFirestoreError(error, OperationType.LIST, 'academicSessions');
-    }
-  );
+  return safeSubscribe(colRef, () => getAcademicSessions(), callback, onError);
 }
 
 export async function getAcademicSessions(): Promise<AcademicSession[]> {
@@ -1636,20 +1562,7 @@ export function subscribeToAcademicSemesters(
   onError?: (err: any) => void
 ): Unsubscribe {
   const colRef = collection(db, 'academicSemesters');
-  return onSnapshot(
-    colRef,
-    (snap) => {
-      const list: AcademicSemester[] = [];
-      snap.forEach((d) => list.push({ id: d.id, ...d.data() } as AcademicSemester));
-      list.sort((a, b) => (a.order ?? 99) - (b.order ?? 99));
-      callback(list);
-    },
-    (error) => {
-      console.warn('Real-time academic semesters subscription error:', error);
-      if (onError) onError(error);
-      else handleFirestoreError(error, OperationType.LIST, 'academicSemesters');
-    }
-  );
+  return safeSubscribe(colRef, () => getAcademicSemesters(), callback, onError);
 }
 
 export async function getAcademicSemesters(): Promise<AcademicSemester[]> {
@@ -1735,20 +1648,7 @@ export function subscribeToPracticalSubjects(
   onError?: (err: any) => void
 ): Unsubscribe {
   const colRef = collection(db, 'practicalSubjects');
-  return onSnapshot(
-    colRef,
-    (snap) => {
-      const list: PracticalSubject[] = [];
-      snap.forEach((d) => list.push({ id: d.id, ...d.data() } as PracticalSubject));
-      list.sort((a, b) => a.name.localeCompare(b.name));
-      callback(list);
-    },
-    (error) => {
-      console.warn('Real-time practical subjects subscription error:', error);
-      if (onError) onError(error);
-      else handleFirestoreError(error, OperationType.LIST, 'practicalSubjects');
-    }
-  );
+  return safeSubscribe(colRef, () => getPracticalSubjects(), callback, onError);
 }
 
 export async function getPracticalSubjects(): Promise<PracticalSubject[]> {
@@ -1845,20 +1745,7 @@ export function subscribeToAcademicPapers(
   if (subjectType && subjectType !== ('ALL' as any)) constraints.push(where('subjectType', '==', subjectType));
 
   const q = constraints.length > 0 ? query(colRef, ...constraints) : colRef;
-  return onSnapshot(
-    q,
-    (snap) => {
-      const list: AcademicPaper[] = [];
-      snap.forEach((d) => list.push({ id: d.id, ...d.data() } as AcademicPaper));
-      list.sort((a, b) => a.paperName.localeCompare(b.paperName, undefined, { numeric: true }));
-      callback(list);
-    },
-    (error) => {
-      console.warn('Real-time academic papers subscription error:', error);
-      if (onError) onError(error);
-      else handleFirestoreError(error, OperationType.LIST, 'academicPapers');
-    }
-  );
+  return safeSubscribe(q, () => getAcademicPapers(session, semester, subjectType), callback, onError);
 }
 
 export async function getAcademicPapers(
@@ -1984,20 +1871,7 @@ export function subscribeToPaperStudents(
 ): Unsubscribe {
   const colRef = collection(db, 'paperStudents');
   const q = query(colRef, where('paperId', '==', paperId));
-  return onSnapshot(
-    q,
-    (snap) => {
-      const list: PaperStudent[] = [];
-      snap.forEach((d) => list.push({ id: d.id, ...d.data() } as PaperStudent));
-      list.sort((a, b) => a.rollNumber.localeCompare(b.rollNumber, undefined, { numeric: true }));
-      callback(list);
-    },
-    (error) => {
-      console.warn('Real-time paper students subscription error:', error);
-      if (onError) onError(error);
-      else handleFirestoreError(error, OperationType.LIST, 'paperStudents');
-    }
-  );
+  return safeSubscribe(q, () => getPaperStudents(paperId), callback, onError);
 }
 
 export async function getPaperStudents(paperId?: string): Promise<PaperStudent[]> {

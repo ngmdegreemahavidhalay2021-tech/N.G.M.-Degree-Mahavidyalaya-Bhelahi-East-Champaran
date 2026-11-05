@@ -46,8 +46,8 @@ import {
   getFormActiveSubjects,
   logActivity,
 } from '../services/collegeService';
-import { doc, onSnapshot } from 'firebase/firestore';
-import { db } from '../lib/firebase';
+import { doc, getDoc, onSnapshot } from 'firebase/firestore';
+import { db, auth } from '../lib/firebase';
 import * as XLSX from 'xlsx';
 
 interface PublicPracticalFormProps {
@@ -181,29 +181,57 @@ export const PublicPracticalForm: React.FC<PublicPracticalFormProps> = ({
     loadExaminationData();
   }, [token]);
 
-  // Live real-time sync for form metadata (lock state, status, active toggle, deactivation)
+  // Live sync for form metadata (lock state, status, active toggle, deactivation)
   useEffect(() => {
     if (!practicalForm?.id) return;
-    const unsub = onSnapshot(
-      doc(db, 'practicalForms', practicalForm.id),
-      (snap) => {
-        if (!snap.exists()) {
-          setError('This practical examination form has been deleted or archived by College Administration.');
-          return;
+    let active = true;
+
+    if (auth.currentUser) {
+      const unsub = onSnapshot(
+        doc(db, 'practicalForms', practicalForm.id),
+        (snap) => {
+          if (!active) return;
+          if (!snap.exists()) {
+            setError('This practical examination form has been deleted or archived by College Administration.');
+            return;
+          }
+          const data = snap.data() as PracticalForm;
+          setPracticalForm((prev) => (prev ? { ...prev, ...data } : null));
+          if (!data.isActive) {
+            setError('This practical examination link has been disabled by College Administration.');
+          }
+        },
+        (err) => {
+          console.warn('Real-time practicalForm snapshot notice:', err);
         }
-        const data = snap.data() as PracticalForm;
-        setPracticalForm((prev) => (prev ? { ...prev, ...data } : null));
-        if (!data.isActive) {
-          setError('This practical examination link has been disabled by College Administration.');
-        } else if (data.status === 'closed') {
-          // Closed by admin
+      );
+      return () => {
+        active = false;
+        unsub();
+      };
+    }
+
+    // Polled refresh for unauthenticated incharge link (every 15s)
+    const interval = setInterval(async () => {
+      if (!active) return;
+      try {
+        const snap = await getDoc(doc(db, 'practicalForms', practicalForm.id));
+        if (active && snap.exists()) {
+          const data = snap.data() as PracticalForm;
+          setPracticalForm((prev) => (prev ? { ...prev, ...data } : null));
+          if (!data.isActive) {
+            setError('This practical examination link has been disabled by College Administration.');
+          }
         }
-      },
-      (err) => {
-        console.warn('Real-time practicalForm snapshot notice:', err);
+      } catch {
+        // Silently ignore background polling transient issues
       }
-    );
-    return () => unsub();
+    }, 15000);
+
+    return () => {
+      active = false;
+      clearInterval(interval);
+    };
   }, [practicalForm?.id]);
 
   const loadExaminationData = async () => {
