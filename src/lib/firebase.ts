@@ -3,19 +3,17 @@ import { getAuth } from 'firebase/auth';
 import { getFirestore, doc, getDocFromServer } from 'firebase/firestore';
 import rawConfig from '../../firebase-applet-config.json';
 
-// Allow environment variables from Vite, Vercel, or Next.js conventions to override local config
-const metaEnv = typeof import.meta !== 'undefined' && import.meta.env ? import.meta.env : {};
-const procEnv = typeof process !== 'undefined' && process.env ? process.env : {};
-const env = { ...procEnv, ...metaEnv } as Record<string, string | undefined>;
+// Allow environment variables from Vercel to override local config if present
+const env = (typeof import.meta !== 'undefined' && import.meta.env) ? import.meta.env : (typeof process !== 'undefined' ? process.env : {}) as any;
 
 const firebaseConfig = {
-  projectId: env.VITE_FIREBASE_PROJECT_ID || env.NEXT_PUBLIC_FIREBASE_PROJECT_ID || env.FIREBASE_PROJECT_ID || rawConfig?.projectId || 'vast-archive-1dzcr',
-  appId: env.VITE_FIREBASE_APP_ID || env.NEXT_PUBLIC_FIREBASE_APP_ID || env.FIREBASE_APP_ID || rawConfig?.appId || '1:85113631348:web:3b58b4185838c3b9049721',
-  apiKey: env.VITE_FIREBASE_API_KEY || env.NEXT_PUBLIC_FIREBASE_API_KEY || env.FIREBASE_API_KEY || rawConfig?.apiKey || 'AIzaSyA66T63kI2_np7ktpIzeDN729ZwyJ19MOg',
-  authDomain: env.VITE_FIREBASE_AUTH_DOMAIN || env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN || env.FIREBASE_AUTH_DOMAIN || rawConfig?.authDomain || 'vast-archive-1dzcr.firebaseapp.com',
-  firestoreDatabaseId: env.VITE_FIREBASE_FIRESTORE_DATABASE_ID || env.NEXT_PUBLIC_FIREBASE_FIRESTORE_DATABASE_ID || env.FIREBASE_FIRESTORE_DATABASE_ID || rawConfig?.firestoreDatabaseId || 'ai-studio-bf141177-705a-4793-b2bc-644ebb83d388',
-  storageBucket: env.VITE_FIREBASE_STORAGE_BUCKET || env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET || env.FIREBASE_STORAGE_BUCKET || rawConfig?.storageBucket || 'vast-archive-1dzcr.firebasestorage.app',
-  messagingSenderId: env.VITE_FIREBASE_MESSAGING_SENDER_ID || env.NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID || env.FIREBASE_MESSAGING_SENDER_ID || rawConfig?.messagingSenderId || '85113631348',
+  projectId: env.VITE_FIREBASE_PROJECT_ID || rawConfig.projectId,
+  appId: env.VITE_FIREBASE_APP_ID || rawConfig.appId,
+  apiKey: env.VITE_FIREBASE_API_KEY || rawConfig.apiKey,
+  authDomain: env.VITE_FIREBASE_AUTH_DOMAIN || rawConfig.authDomain,
+  firestoreDatabaseId: env.VITE_FIREBASE_FIRESTORE_DATABASE_ID || rawConfig.firestoreDatabaseId,
+  storageBucket: env.VITE_FIREBASE_STORAGE_BUCKET || rawConfig.storageBucket,
+  messagingSenderId: env.VITE_FIREBASE_MESSAGING_SENDER_ID || rawConfig.messagingSenderId,
 };
 
 export const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApp();

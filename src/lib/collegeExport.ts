@@ -18,44 +18,31 @@ export interface ExportFilterOptions {
   course?: string;
   semester?: string;
   examYear?: string;
-  session?: string;
-  inchargeName?: string;
-  practicalSubject?: string;
-  subjectType?: string;
-  paperName?: string;
   marksStatus?: 'ALL' | 'ENTERED' | 'PENDING';
   searchQuery?: string;
 }
 
 export interface UnifiedExportRecord {
-  sn?: number;
-  session: string;
-  semester: string;
   departmentName: string;
   parentGroupName?: string;
-  inchargeName: string;
-  practicalSubject: string;
-  subjectType: string;
-  paper: string;
+  course: string;
+  semester: string;
+  section: string;
+  subjectCode: string;
+  subjectName: string;
+  examinationName: string;
+  examinationYear: string;
+  examDate: string;
+  maxMarks: number;
+  minPassingMarks: number;
   rollNumber: string;
   studentName: string;
   fatherName: string;
-  maxMarks: number;
-  minPassingMarks: number;
   marksObtained: number | string;
-  marksStatus: 'PRESENT' | 'ABSENT' | 'PENDING';
+  status: 'PRESENT' | 'ABSENT' | 'PENDING';
   resultStatus: 'PASS' | 'FAIL' | 'ABSENT' | 'PENDING';
   remarks: string;
   exportDate: string;
-  // Backward compatibility fields
-  course?: string;
-  section?: string;
-  subjectCode?: string;
-  subjectName?: string;
-  examinationName?: string;
-  examinationYear?: string;
-  examDate?: string;
-  status?: 'PRESENT' | 'ABSENT' | 'PENDING';
 }
 
 export function generateExportRecords(
@@ -75,49 +62,20 @@ export function generateExportRecords(
   forms.forEach((form) => {
     // Apply form level filters
     if (options.departmentId && options.departmentId !== 'ALL' && form.departmentId !== options.departmentId) return;
+    if (options.subjectId && options.subjectId !== 'ALL' && form.subjectId !== options.subjectId) return;
     if (options.practicalFormId && options.practicalFormId !== 'ALL' && form.id !== options.practicalFormId) return;
     if (options.course && options.course !== 'ALL' && form.course !== options.course) return;
     if (options.semester && options.semester !== 'ALL' && form.semester !== options.semester) return;
     if (options.examYear && options.examYear !== 'ALL' && form.examYear !== options.examYear) return;
-    if (options.session && options.session !== 'ALL' && (form.session || form.examYear) !== options.session) return;
-    if (options.subjectType && options.subjectType !== 'ALL' && (form.subjectType || 'MJC') !== options.subjectType) return;
-    if (options.paperName && options.paperName !== 'ALL' && (form.paperName || '') !== options.paperName) return;
-    if (options.inchargeName && options.inchargeName !== 'ALL' && (form.inchargeName || '') !== options.inchargeName) return;
 
     const enrollments = enrollmentsMap[form.id] || [];
     const marks = marksMap[form.id] || [];
-
-    // Index marks by studentId and composite key studentId_SUBJECT
     const marksByStudentId = new Map(marks.map((m) => [m.studentId, m]));
-    const marksByStudentAndSubj = new Map(
-      marks.map((m) => [`${m.studentId}_${(m.subject || '').trim().toUpperCase()}`, m])
-    );
-
     const deptObj = deptLookup.get(form.departmentId);
     const minPass = form.minPassingMarks ?? Math.round(form.maxMarks * 0.33);
 
     enrollments.forEach((enr) => {
-      // Determine candidate's real assigned subject
-      const rawSubj = (enr.subject || form.subjectName || 'GENERAL').trim().toUpperCase();
-      const markRec = marksByStudentAndSubj.get(`${enr.studentId}_${rawSubj}`) || marksByStudentId.get(enr.studentId);
-      const candidateSubject = (enr.subject || markRec?.subject || form.subjectName || 'GENERAL').trim().toUpperCase();
-
-      // Filter by practicalSubject
-      if (options.practicalSubject && options.practicalSubject !== 'ALL') {
-        if (candidateSubject !== options.practicalSubject.trim().toUpperCase()) return;
-      }
-
-      // Filter by subjectId if specified
-      if (options.subjectId && options.subjectId !== 'ALL') {
-        const targetSubj = subjLookup.get(options.subjectId);
-        const matchesSubjName = targetSubj && targetSubj.name.trim().toUpperCase() === candidateSubject;
-        const matchesFormSubj = form.subjectId === options.subjectId;
-        const matchesSubjAssignment = form.subjectAssignments?.some(
-          (a) => a.subjectId === options.subjectId && a.subjectName.trim().toUpperCase() === candidateSubject
-        );
-        if (!matchesSubjName && !matchesFormSubj && !matchesSubjAssignment) return;
-      }
-
+      const markRec = marksByStudentId.get(enr.studentId);
       const isPresent = markRec?.isPresent ?? false;
       const hasMarks = markRec && markRec.marksObtained !== null && markRec.marksObtained !== undefined;
 
@@ -144,50 +102,32 @@ export function generateExportRecords(
       // Filter by search query
       if (options.searchQuery) {
         const q = options.searchQuery.toLowerCase();
-        const matchesRoll = String(enr.rollNumber || '').toLowerCase().includes(q);
-        const matchesName = String(enr.studentName || '').toLowerCase().includes(q);
+        const matchesRoll = enr.rollNumber.toLowerCase().includes(q);
+        const matchesName = enr.studentName.toLowerCase().includes(q);
         if (!matchesRoll && !matchesName) return;
       }
 
-      const rowSession = form.session || form.examYear || '2025-29';
-      const rowSemester = form.semester || 'Semester 2';
-      const rowDept = deptObj?.name || form.departmentName || form.departmentId;
-      const rowIncharge = form.inchargeName || 'Subject Incharge';
-      const rowSubjType = form.subjectType || 'MJC';
-      const rowPaper = form.paperName || form.examName || 'MJ5';
-      const rowSubjCode =
-        form.subjectAssignments?.find((a) => a.subjectName.trim().toUpperCase() === candidateSubject)?.subjectCode ||
-        form.subjectCode ||
-        candidateSubject.slice(0, 4);
-
       records.push({
-        session: rowSession,
-        semester: rowSemester,
-        departmentName: rowDept,
+        departmentName: deptObj?.name || form.departmentId,
         parentGroupName: deptObj?.isGroup ? deptObj.name : undefined,
-        inchargeName: rowIncharge,
-        practicalSubject: candidateSubject,
-        subjectType: rowSubjType,
-        paper: rowPaper,
-        rollNumber: String(enr.rollNumber || ''),
-        studentName: String(enr.studentName || ''),
-        fatherName: String(enr.fatherName || '-'),
+        course: form.course,
+        semester: form.semester,
+        section: form.section || 'All',
+        subjectCode: form.subjectCode,
+        subjectName: form.subjectName,
+        examinationName: form.examName,
+        examinationYear: form.examYear,
+        examDate: form.examDate,
         maxMarks: form.maxMarks,
         minPassingMarks: minPass,
+        rollNumber: enr.rollNumber,
+        studentName: enr.studentName,
+        fatherName: enr.fatherName || '',
         marksObtained: score,
-        marksStatus: status,
+        status,
         resultStatus,
         remarks: markRec?.remarks || '',
         exportDate,
-        // compatibility fields
-        course: form.course || 'B.A./B.Sc.',
-        section: enr.section || form.section || 'All',
-        subjectCode: rowSubjCode,
-        subjectName: candidateSubject,
-        examinationName: form.examName,
-        examinationYear: rowSession,
-        examDate: form.examDate,
-        status,
       });
     });
   });
@@ -202,41 +142,49 @@ export function exportMasterCollegeWorkbook(
 ) {
   const wb = XLSX.utils.book_new();
 
-  // 1. Master Records Sheet — EXACT 15 COLUMNS
+  // 1. Master Records Sheet
   const masterHeaders = [
-    'SN.',
-    'Session',
-    'Semester',
-    'Department',
-    'Incharge Name',
-    'Practical Subject',
-    'Subject Type',
-    'Paper',
     'Roll Number',
     'Student Name',
     "Father's Name",
-    'Maximum Marks',
-    'Minimum Marks',
-    'Obtained Marks',
-    'Marks Status',
+    'Department / Parent Group',
+    'Course',
+    'Semester',
+    'Section',
+    'Subject Code',
+    'Subject Name',
+    'Examination Name',
+    'Academic Year',
+    'Exam Date',
+    'Max Marks',
+    'Min Passing Marks',
+    'Marks Obtained',
+    'Attendance Status',
+    'Result Status',
+    'Remarks',
+    'Export Date',
   ];
 
-  const masterRows = records.map((r, idx) => [
-    idx + 1,
-    r.session,
-    r.semester,
-    r.departmentName,
-    r.inchargeName,
-    r.practicalSubject,
-    r.subjectType,
-    r.paper,
+  const masterRows = records.map((r) => [
     r.rollNumber,
     r.studentName,
     r.fatherName,
+    r.parentGroupName ? `${r.departmentName} (${r.parentGroupName})` : r.departmentName,
+    r.course,
+    r.semester,
+    r.section,
+    r.subjectCode,
+    r.subjectName,
+    r.examinationName,
+    r.examinationYear,
+    r.examDate,
     r.maxMarks,
     r.minPassingMarks,
     r.marksObtained,
-    r.marksStatus,
+    r.status,
+    r.resultStatus,
+    r.remarks,
+    r.exportDate,
   ]);
 
   const wsMaster = XLSX.utils.aoa_to_sheet([
@@ -248,85 +196,48 @@ export function exportMasterCollegeWorkbook(
   ]);
 
   wsMaster['!cols'] = [
-    { wch: 6 },
-    { wch: 12 },
-    { wch: 14 },
-    { wch: 24 },
-    { wch: 22 },
+    { wch: 15 },
+    { wch: 25 },
+    { wch: 28 },
     { wch: 20 },
     { wch: 14 },
+    { wch: 10 },
     { wch: 14 },
-    { wch: 18 },
-    { wch: 26 },
-    { wch: 26 },
+    { wch: 32 },
+    { wch: 28 },
     { wch: 14 },
     { wch: 14 },
+    { wch: 12 },
     { wch: 16 },
+    { wch: 16 },
+    { wch: 24 },
     { wch: 14 },
   ];
 
   XLSX.utils.book_append_sheet(wb, wsMaster, 'All Practical Records');
 
-  // 2. Individual Subject Sheets (if multiple distinct subjects exist)
-  const distinctSubjects = Array.from(new Set(records.map((r) => r.practicalSubject)));
-  if (distinctSubjects.length > 1) {
-    distinctSubjects.forEach((subj) => {
-      const subjRecords = records.filter((r) => r.practicalSubject === subj);
-      const rows = subjRecords.map((r, idx) => [
-        idx + 1,
-        r.session,
-        r.semester,
-        r.departmentName,
-        r.inchargeName,
-        r.practicalSubject,
-        r.subjectType,
-        r.paper,
-        r.rollNumber,
-        r.studentName,
-        r.fatherName,
-        r.maxMarks,
-        r.minPassingMarks,
-        r.marksObtained,
-        r.marksStatus,
-      ]);
-
-      const wsSubj = XLSX.utils.aoa_to_sheet([
-        [institutionName.toUpperCase()],
-        [`PRACTICAL EXAMINATION STATEMENT - ${subj}`],
-        [],
-        masterHeaders,
-        ...rows,
-      ]);
-
-      wsSubj['!cols'] = wsMaster['!cols'];
-      const safeSheetName = subj.slice(0, 31).replace(/[^a-zA-Z0-9_-]/g, '_');
-      XLSX.utils.book_append_sheet(wb, wsSubj, safeSheetName);
-    });
-  }
-
-  // 3. Summary Statistics Sheet
-  const subjectStats: Record<string, { total: number; present: number; absent: number; pending: number }> = {};
+  // 2. Summary Statistics Sheet
+  const deptStats: Record<string, { total: number; present: number; absent: number; pending: number }> = {};
   records.forEach((r) => {
-    const key = r.practicalSubject;
-    if (!subjectStats[key]) {
-      subjectStats[key] = { total: 0, present: 0, absent: 0, pending: 0 };
+    if (!deptStats[r.departmentName]) {
+      deptStats[r.departmentName] = { total: 0, present: 0, absent: 0, pending: 0 };
     }
-    subjectStats[key].total++;
-    if (r.marksStatus === 'PRESENT') subjectStats[key].present++;
-    else if (r.marksStatus === 'ABSENT') subjectStats[key].absent++;
-    else subjectStats[key].pending++;
+    deptStats[r.departmentName].total++;
+    if (r.status === 'PRESENT') deptStats[r.departmentName].present++;
+    else if (r.status === 'ABSENT') deptStats[r.departmentName].absent++;
+    else deptStats[r.departmentName].pending++;
   });
 
   const summaryRows = [
     [institutionName.toUpperCase()],
-    ['PRACTICAL EXAMINATION SUBJECT-WISE SUMMARY STATISTICS'],
+    ['DEPARTMENT-WISE EVALUATION SUMMARY STATISTICS'],
     [],
-    ['Practical Subject', 'Total Enrolled', 'Evaluated (Present)', 'Absent Candidates', 'Pending Marks', 'Completion Rate'],
+    ['Department Name', 'Total Enrolled', 'Evaluated (Present)', 'Absent Candidates', 'Pending Marks', 'Completion Rate'],
   ];
 
-  Object.entries(subjectStats).forEach(([subj, s]) => {
+  Object.entries(deptStats).forEach(([dept, s]) => {
     const rate = s.total > 0 ? (((s.present + s.absent) / s.total) * 100).toFixed(1) + '%' : '0%';
-    summaryRows.push([subj, s.total as any, s.present as any, s.absent as any, s.pending as any, rate as any]);
+    summaryRows.push([dept, s.total as any, s.present as any, s.absent as any, s.pending as any, rate as any]);
   });
 
   const wsSummary = XLSX.utils.aoa_to_sheet(summaryRows);
@@ -408,28 +319,15 @@ export function exportSingleFormExcel(
   form: PracticalForm,
   enrollments: FormEnrollment[],
   marks: MarksRecord[],
-  institutionName = 'NGM Degree Mahavidyalaya',
-  targetSubject?: string
+  institutionName = 'NGM Degree Mahavidyalaya'
 ) {
-  const normTarget = targetSubject ? targetSubject.trim().toUpperCase() : null;
-  const filteredEnrollments = normTarget
-    ? enrollments.filter(
-        (e) => (e.subject || form.subjectName || '').trim().toUpperCase() === normTarget
-      )
-    : enrollments;
-
   const marksMap = new Map(marks.map((m) => [m.studentId, m]));
-  const marksByStudentAndSubj = new Map(
-    marks.map((m) => [`${m.studentId}_${(m.subject || '').trim().toUpperCase()}`, m])
-  );
   const minPass = form.minPassingMarks ?? Math.round(form.maxMarks * 0.33);
-
   const headers = [
     'S.No.',
     'Roll Number',
     'Student Name',
     "Father's Name",
-    'Practical Subject',
     'Course',
     'Semester',
     'Section',
@@ -441,16 +339,13 @@ export function exportSingleFormExcel(
     'Remarks',
   ];
 
-  const rows = filteredEnrollments.map((enr, idx) => {
-    const rawSubj = (enr.subject || form.subjectName || '').trim().toUpperCase();
-    const markRec = marksByStudentAndSubj.get(`${enr.studentId}_${rawSubj}`) || marksMap.get(enr.studentId);
-    const candidateSubject = enr.subject || markRec?.subject || form.subjectName || 'GENERAL';
-
+  const rows = enrollments.map((enr, idx) => {
+    const markRec = marksMap.get(enr.studentId);
     const isPresent = markRec?.isPresent ?? false;
     const hasScore = markRec && markRec.marksObtained !== null && markRec.marksObtained !== undefined;
     const score = isPresent ? (hasScore ? markRec.marksObtained! : '') : 'ABSENT';
     const status = markRec ? (isPresent ? 'PRESENT' : 'ABSENT') : 'PENDING';
-
+    
     let resultStatus: 'PASS' | 'FAIL' | 'ABSENT' | 'PENDING' = 'PENDING';
     if (markRec) {
       if (!isPresent) resultStatus = 'ABSENT';
@@ -459,12 +354,11 @@ export function exportSingleFormExcel(
 
     return [
       idx + 1,
-      String(enr.rollNumber || ''),
-      String(enr.studentName || ''),
-      String(enr.fatherName || '-'),
-      candidateSubject,
-      form.course || 'B.A./B.Sc.',
-      form.semester || 'Semester 2',
+      enr.rollNumber,
+      enr.studentName,
+      enr.fatherName || '-',
+      form.course,
+      form.semester,
       enr.section || form.section || '-',
       status,
       form.maxMarks,
@@ -475,42 +369,18 @@ export function exportSingleFormExcel(
     ];
   });
 
-  const displaySubject = normTarget || form.subjectName || 'PRACTICAL';
   const ws = XLSX.utils.aoa_to_sheet([
     [institutionName.toUpperCase()],
     [`PRACTICAL EXAMINATION MARKSHEET - ${form.title}`],
-    [
-      `Subject: ${displaySubject} | Incharge: ${form.inchargeName || 'Incharge'} | Date: ${form.examDate || 'Current'} | Max Marks: ${form.maxMarks} | Min Pass Marks: ${minPass}`,
-    ],
+    [`Subject: ${form.subjectName} (${form.subjectCode}) | Date: ${form.examDate} | Max Marks: ${form.maxMarks} | Min Pass Marks: ${minPass}`],
     [],
     headers,
     ...rows,
   ]);
 
-  ws['!cols'] = [
-    { wch: 6 },
-    { wch: 18 },
-    { wch: 26 },
-    { wch: 26 },
-    { wch: 20 },
-    { wch: 12 },
-    { wch: 14 },
-    { wch: 10 },
-    { wch: 14 },
-    { wch: 16 },
-    { wch: 16 },
-    { wch: 16 },
-    { wch: 14 },
-    { wch: 20 },
-  ];
-
   const wb = XLSX.utils.book_new();
-  const safeSheetName = (displaySubject || 'Marksheet').slice(0, 31).replace(/[^a-zA-Z0-9_-]/g, '_');
-  XLSX.utils.book_append_sheet(wb, ws, safeSheetName);
-  XLSX.writeFile(
-    wb,
-    `${displaySubject}_Practical_Marks_${new Date().toISOString().slice(0, 10)}.xlsx`
-  );
+  XLSX.utils.book_append_sheet(wb, ws, (form.subjectCode || 'Marksheet').slice(0, 31));
+  XLSX.writeFile(wb, `${form.subjectCode}_Practical_Marks_${new Date().toISOString().slice(0, 10)}.xlsx`);
 }
 
 export function exportExaminerAssignmentMarksheetExcel(
