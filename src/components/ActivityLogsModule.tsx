@@ -1,28 +1,23 @@
 import React, { useState, useEffect } from 'react';
 import { History, Search, Clock, RefreshCw, Shield, Filter } from 'lucide-react';
 import { ActivityLog } from '../types';
-import { getActivityLogs, subscribeToActivityLogs } from '../services/collegeService';
+import { getActivityLogs } from '../services/collegeService';
 
 export const ActivityLogsModule: React.FC = () => {
   const [logs, setLogs] = useState<ActivityLog[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [actionFilter, setActionFilter] = useState('ALL');
 
   useEffect(() => {
-    setLoading(true);
-    const unsubscribe = subscribeToActivityLogs((liveLogs) => {
-      setLogs(liveLogs || []);
-      setLoading(false);
-    });
-    return () => unsubscribe();
+    fetchLogs();
   }, []);
 
   const fetchLogs = async () => {
     try {
       setLoading(true);
       const data = await getActivityLogs();
-      setLogs(data || []);
+      setLogs(data);
     } catch (err) {
       console.error('Error fetching logs:', err);
     } finally {

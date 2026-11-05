@@ -11,8 +11,6 @@ import {
   where,
   orderBy,
   limit,
-  onSnapshot,
-  Unsubscribe,
 } from 'firebase/firestore';
 import { db, handleFirestoreError, OperationType } from '../lib/firebase';
 import {
@@ -68,27 +66,6 @@ export async function logActivity(
   }
 }
 
-export function subscribeToActivityLogs(
-  callback: (logs: ActivityLog[]) => void,
-  limitCount = 150,
-  onError?: (err: any) => void
-): Unsubscribe {
-  const q = query(collection(db, 'activityLogs'), orderBy('timestamp', 'desc'), limit(limitCount));
-  return onSnapshot(
-    q,
-    (snap) => {
-      const logs: ActivityLog[] = [];
-      snap.forEach((d) => logs.push({ id: d.id, ...d.data() } as ActivityLog));
-      callback(logs);
-    },
-    (error) => {
-      console.warn('Real-time activity logs subscription error:', error);
-      if (onError) onError(error);
-      else handleFirestoreError(error, OperationType.LIST, 'activityLogs');
-    }
-  );
-}
-
 export async function getActivityLogs(): Promise<ActivityLog[]> {
   try {
     const q = query(collection(db, 'activityLogs'), orderBy('timestamp', 'desc'), limit(150));
@@ -102,27 +79,6 @@ export async function getActivityLogs(): Promise<ActivityLog[]> {
 }
 
 // ==================== DEPARTMENTS ====================
-
-export function subscribeToDepartments(
-  callback: (departments: Department[]) => void,
-  onError?: (err: any) => void
-): Unsubscribe {
-  const colRef = collection(db, 'departments');
-  return onSnapshot(
-    colRef,
-    (snap) => {
-      const list: Department[] = [];
-      snap.forEach((d) => list.push({ id: d.id, ...d.data() } as Department));
-      list.sort((a, b) => a.name.localeCompare(b.name));
-      callback(list);
-    },
-    (error) => {
-      console.warn('Real-time departments subscription error:', error);
-      if (onError) onError(error);
-      else handleFirestoreError(error, OperationType.LIST, 'departments');
-    }
-  );
-}
 
 export async function getDepartments(): Promise<Department[]> {
   try {
@@ -163,16 +119,6 @@ export async function updateDepartment(id: string, updates: Partial<Department>)
 
 export async function deleteDepartment(id: string): Promise<void> {
   try {
-    // Check dependent subjects and practical forms
-    const subjSnap = await getDocs(query(collection(db, 'subjects'), where('departmentId', '==', id)));
-    const formsSnap = await getDocs(query(collection(db, 'practicalForms'), where('departmentId', '==', id)));
-    if (!subjSnap.empty || !formsSnap.empty) {
-      const batch = writeBatch(db);
-      subjSnap.forEach((d) => batch.update(d.ref, { departmentId: 'unassigned' }));
-      formsSnap.forEach((d) => batch.update(d.ref, { departmentId: 'unassigned' }));
-      await batch.commit();
-    }
-
     await deleteDoc(doc(db, 'departments', id));
     await logActivity('DEPARTMENT_DELETED', `Deleted department ${id}`, 'Department', id);
   } catch (err) {
@@ -181,29 +127,6 @@ export async function deleteDepartment(id: string): Promise<void> {
 }
 
 // ==================== SUBJECTS ====================
-
-export function subscribeToSubjects(
-  callback: (subjects: Subject[]) => void,
-  departmentId?: string,
-  onError?: (err: any) => void
-): Unsubscribe {
-  const colRef = collection(db, 'subjects');
-  const q = departmentId ? query(colRef, where('departmentId', '==', departmentId)) : colRef;
-  return onSnapshot(
-    q,
-    (snap) => {
-      const list: Subject[] = [];
-      snap.forEach((d) => list.push({ id: d.id, ...d.data() } as Subject));
-      list.sort((a, b) => a.code.localeCompare(b.code));
-      callback(list);
-    },
-    (error) => {
-      console.warn('Real-time subjects subscription error:', error);
-      if (onError) onError(error);
-      else handleFirestoreError(error, OperationType.LIST, 'subjects');
-    }
-  );
-}
 
 export async function getSubjects(departmentId?: string): Promise<Subject[]> {
   try {
@@ -318,37 +241,6 @@ export function validateMarksValue(
   }
 
   return { valid: true, numericValue: num };
-}
-
-export function subscribeToPracticalForms(
-  callback: (forms: PracticalForm[]) => void,
-  onError?: (err: any) => void
-): Unsubscribe {
-  const colRef = collection(db, 'practicalForms');
-  return onSnapshot(
-    colRef,
-    (snap) => {
-      const list: PracticalForm[] = [];
-      snap.forEach((d) => {
-        const data = d.data() as any;
-        const maxMarks = Number(data.maxMarks) || 50;
-        const minPassingMarks = data.minPassingMarks !== undefined ? Number(data.minPassingMarks) : Math.round(maxMarks * 0.33);
-        list.push({
-          id: d.id,
-          ...data,
-          maxMarks,
-          minPassingMarks,
-        } as PracticalForm);
-      });
-      list.sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
-      callback(list);
-    },
-    (error) => {
-      console.warn('Real-time practical forms subscription error:', error);
-      if (onError) onError(error);
-      else handleFirestoreError(error, OperationType.LIST, 'practicalForms');
-    }
-  );
 }
 
 export async function getPracticalForms(): Promise<PracticalForm[]> {
@@ -625,24 +517,8 @@ export async function duplicatePracticalForm(id: string): Promise<PracticalForm>
 
 export async function deletePracticalForm(id: string): Promise<void> {
   try {
-    // 1. Delete associated form enrollments in batches
-    const enrSnap = await getDocs(query(collection(db, 'formEnrollments'), where('practicalFormId', '==', id)));
-    if (!enrSnap.empty) {
-      const batch = writeBatch(db);
-      enrSnap.forEach((d) => batch.delete(d.ref));
-      await batch.commit();
-    }
-
-    // 2. Delete associated marks in batches
-    const marksSnap = await getDocs(query(collection(db, 'marks'), where('practicalFormId', '==', id)));
-    if (!marksSnap.empty) {
-      const batch = writeBatch(db);
-      marksSnap.forEach((d) => batch.delete(d.ref));
-      await batch.commit();
-    }
-
     await deleteDoc(doc(db, 'practicalForms', id));
-    await logActivity('PRACTICAL_FORM_DELETED', `Deleted practical examination form ${id} and cleaned up linked enrollments and marks`, 'PracticalForm', id);
+    await logActivity('PRACTICAL_FORM_DELETED', `Deleted practical examination form ${id}`, 'PracticalForm', id);
   } catch (err) {
     handleFirestoreError(err, OperationType.DELETE, `practicalForms/${id}`);
   }
@@ -688,29 +564,6 @@ export async function transferSubjectDepartment(subjectId: string, targetDepartm
   } catch (err) {
     handleFirestoreError(err, OperationType.UPDATE, `subjects/${subjectId}`);
   }
-}
-
-export function subscribeToStudents(
-  callback: (students: Student[]) => void,
-  departmentId?: string,
-  onError?: (err: any) => void
-): Unsubscribe {
-  const colRef = collection(db, 'students');
-  const q = departmentId ? query(colRef, where('departmentId', '==', departmentId)) : colRef;
-  return onSnapshot(
-    q,
-    (snap) => {
-      const list: Student[] = [];
-      snap.forEach((d) => list.push({ id: d.id, ...d.data() } as Student));
-      list.sort((a, b) => a.rollNumber.localeCompare(b.rollNumber, undefined, { numeric: true }));
-      callback(list);
-    },
-    (error) => {
-      console.warn('Real-time students subscription error:', error);
-      if (onError) onError(error);
-      else handleFirestoreError(error, OperationType.LIST, 'students');
-    }
-  );
 }
 
 export async function getStudents(departmentId?: string): Promise<Student[]> {
@@ -793,43 +646,6 @@ export async function deleteStudent(id: string): Promise<void> {
 }
 
 // ==================== FORM ENROLLMENTS ====================
-
-export function subscribeToFormEnrollments(
-  practicalFormId: string,
-  callback: (enrollments: FormEnrollment[]) => void,
-  subjectName?: string,
-  onError?: (err: any) => void
-): Unsubscribe {
-  const q = query(collection(db, 'formEnrollments'), where('practicalFormId', '==', practicalFormId));
-  const normSubj = subjectName ? subjectName.trim().toUpperCase() : null;
-
-  return onSnapshot(
-    q,
-    (snap) => {
-      const list: FormEnrollment[] = [];
-      snap.forEach((d) => {
-        const data = d.data() as FormEnrollment;
-        const record = { ...(data as object), id: d.id } as FormEnrollment;
-        if (normSubj) {
-          if (record.subject && record.subject.trim().toUpperCase() === normSubj) {
-            list.push(record);
-          } else if (!record.subject) {
-            list.push(record);
-          }
-        } else {
-          list.push(record);
-        }
-      });
-      list.sort((a, b) => a.rollNumber.localeCompare(b.rollNumber, undefined, { numeric: true }));
-      callback(list);
-    },
-    (error) => {
-      console.warn('Real-time form enrollments subscription error:', error);
-      if (onError) onError(error);
-      else handleFirestoreError(error, OperationType.LIST, 'formEnrollments');
-    }
-  );
-}
 
 export async function getFormEnrollments(
   practicalFormId: string,
@@ -1125,42 +941,6 @@ export async function removeStudentFromForm(practicalFormId: string, studentId: 
 }
 
 // ==================== MARKS ====================
-
-export function subscribeToFormMarks(
-  practicalFormId: string,
-  callback: (marks: MarksRecord[]) => void,
-  subjectName?: string,
-  onError?: (err: any) => void
-): Unsubscribe {
-  const q = query(collection(db, 'marks'), where('practicalFormId', '==', practicalFormId));
-  const normSubj = subjectName ? subjectName.trim().toUpperCase() : null;
-
-  return onSnapshot(
-    q,
-    (snap) => {
-      const list: MarksRecord[] = [];
-      snap.forEach((d) => {
-        const data = d.data() as MarksRecord;
-        const record = { ...(data as object), id: d.id } as MarksRecord;
-        if (normSubj) {
-          if (record.subject && record.subject.trim().toUpperCase() === normSubj) {
-            list.push(record);
-          } else if (!record.subject) {
-            list.push(record);
-          }
-        } else {
-          list.push(record);
-        }
-      });
-      callback(list);
-    },
-    (error) => {
-      console.warn('Real-time form marks subscription error:', error);
-      if (onError) onError(error);
-      else handleFirestoreError(error, OperationType.LIST, 'marks');
-    }
-  );
-}
 
 export async function getFormMarks(
   practicalFormId: string,
@@ -1523,27 +1303,6 @@ export async function seedInitialCollegeData(): Promise<void> {
 
 // ==================== ACADEMIC SESSIONS ====================
 
-export function subscribeToAcademicSessions(
-  callback: (sessions: AcademicSession[]) => void,
-  onError?: (err: any) => void
-): Unsubscribe {
-  const colRef = collection(db, 'academicSessions');
-  return onSnapshot(
-    colRef,
-    (snap) => {
-      const list: AcademicSession[] = [];
-      snap.forEach((d) => list.push({ id: d.id, ...d.data() } as AcademicSession));
-      list.sort((a, b) => a.sessionName.localeCompare(b.sessionName));
-      callback(list);
-    },
-    (error) => {
-      console.warn('Real-time academic sessions subscription error:', error);
-      if (onError) onError(error);
-      else handleFirestoreError(error, OperationType.LIST, 'academicSessions');
-    }
-  );
-}
-
 export async function getAcademicSessions(): Promise<AcademicSession[]> {
   try {
     const snap = await getDocs(collection(db, 'academicSessions'));
@@ -1613,27 +1372,6 @@ export async function deleteAcademicSession(id: string): Promise<void> {
 }
 
 // ==================== ACADEMIC SEMESTERS ====================
-
-export function subscribeToAcademicSemesters(
-  callback: (semesters: AcademicSemester[]) => void,
-  onError?: (err: any) => void
-): Unsubscribe {
-  const colRef = collection(db, 'academicSemesters');
-  return onSnapshot(
-    colRef,
-    (snap) => {
-      const list: AcademicSemester[] = [];
-      snap.forEach((d) => list.push({ id: d.id, ...d.data() } as AcademicSemester));
-      list.sort((a, b) => (a.order ?? 99) - (b.order ?? 99));
-      callback(list);
-    },
-    (error) => {
-      console.warn('Real-time academic semesters subscription error:', error);
-      if (onError) onError(error);
-      else handleFirestoreError(error, OperationType.LIST, 'academicSemesters');
-    }
-  );
-}
 
 export async function getAcademicSemesters(): Promise<AcademicSemester[]> {
   try {
@@ -1712,27 +1450,6 @@ export async function deleteAcademicSemester(id: string): Promise<void> {
 }
 
 // ==================== PRACTICAL SUBJECTS MASTER ====================
-
-export function subscribeToPracticalSubjects(
-  callback: (subjects: PracticalSubject[]) => void,
-  onError?: (err: any) => void
-): Unsubscribe {
-  const colRef = collection(db, 'practicalSubjects');
-  return onSnapshot(
-    colRef,
-    (snap) => {
-      const list: PracticalSubject[] = [];
-      snap.forEach((d) => list.push({ id: d.id, ...d.data() } as PracticalSubject));
-      list.sort((a, b) => a.name.localeCompare(b.name));
-      callback(list);
-    },
-    (error) => {
-      console.warn('Real-time practical subjects subscription error:', error);
-      if (onError) onError(error);
-      else handleFirestoreError(error, OperationType.LIST, 'practicalSubjects');
-    }
-  );
-}
 
 export async function getPracticalSubjects(): Promise<PracticalSubject[]> {
   try {
@@ -1814,36 +1531,6 @@ export function matchPracticalSubject(rawName: string, availableSubjects: Practi
 
 // ==================== ACADEMIC PAPERS (MJC, MIC, MDC) ====================
 
-export function subscribeToAcademicPapers(
-  callback: (papers: AcademicPaper[]) => void,
-  session?: string,
-  semester?: string,
-  subjectType?: SubjectType,
-  onError?: (err: any) => void
-): Unsubscribe {
-  const colRef = collection(db, 'academicPapers');
-  const constraints: any[] = [];
-  if (session && session !== 'ALL') constraints.push(where('session', '==', session));
-  if (semester && semester !== 'ALL') constraints.push(where('semester', '==', semester));
-  if (subjectType && subjectType !== ('ALL' as any)) constraints.push(where('subjectType', '==', subjectType));
-
-  const q = constraints.length > 0 ? query(colRef, ...constraints) : colRef;
-  return onSnapshot(
-    q,
-    (snap) => {
-      const list: AcademicPaper[] = [];
-      snap.forEach((d) => list.push({ id: d.id, ...d.data() } as AcademicPaper));
-      list.sort((a, b) => a.paperName.localeCompare(b.paperName, undefined, { numeric: true }));
-      callback(list);
-    },
-    (error) => {
-      console.warn('Real-time academic papers subscription error:', error);
-      if (onError) onError(error);
-      else handleFirestoreError(error, OperationType.LIST, 'academicPapers');
-    }
-  );
-}
-
 export async function getAcademicPapers(
   session?: string,
   semester?: string,
@@ -1920,24 +1607,8 @@ export async function updateAcademicPaper(id: string, updates: Partial<AcademicP
 
 export async function deleteAcademicPaper(id: string): Promise<void> {
   try {
-    // 1. Cascade delete associated paper students in batches
-    const studSnap = await getDocs(query(collection(db, 'paperStudents'), where('paperId', '==', id)));
-    if (!studSnap.empty) {
-      const batch = writeBatch(db);
-      studSnap.forEach((d) => batch.delete(d.ref));
-      await batch.commit();
-    }
-
-    // 2. Cascade delete associated examiner assignments in batches
-    const asgnSnap = await getDocs(query(collection(db, 'examinerAssignments'), where('paperId', '==', id)));
-    if (!asgnSnap.empty) {
-      const batch = writeBatch(db);
-      asgnSnap.forEach((d) => batch.delete(d.ref));
-      await batch.commit();
-    }
-
     await deleteDoc(doc(db, 'academicPapers', id));
-    await logActivity('PAPER_DELETED', `Deleted paper ${id} and cleaned up linked students and assignments`, 'AcademicPaper', id);
+    await logActivity('PAPER_DELETED', `Deleted paper ${id}`, 'AcademicPaper', id);
   } catch (err) {
     handleFirestoreError(err, OperationType.DELETE, `academicPapers/${id}`);
   }
@@ -1958,29 +1629,6 @@ export function generatePermanentPaperStudentId(
   const cPaper = paperName.trim().toUpperCase().replace(/[^A-Z0-9]/g, '_');
   const cRoll = rollNumber.trim().toUpperCase().replace(/[^A-Z0-9]/g, '_');
   return `std_${cSess}_${cSem}_${cType}_${cPaper}_${cRoll}`;
-}
-
-export function subscribeToPaperStudents(
-  paperId: string,
-  callback: (students: PaperStudent[]) => void,
-  onError?: (err: any) => void
-): Unsubscribe {
-  const colRef = collection(db, 'paperStudents');
-  const q = query(colRef, where('paperId', '==', paperId));
-  return onSnapshot(
-    q,
-    (snap) => {
-      const list: PaperStudent[] = [];
-      snap.forEach((d) => list.push({ id: d.id, ...d.data() } as PaperStudent));
-      list.sort((a, b) => a.rollNumber.localeCompare(b.rollNumber, undefined, { numeric: true }));
-      callback(list);
-    },
-    (error) => {
-      console.warn('Real-time paper students subscription error:', error);
-      if (onError) onError(error);
-      else handleFirestoreError(error, OperationType.LIST, 'paperStudents');
-    }
-  );
 }
 
 export async function getPaperStudents(paperId?: string): Promise<PaperStudent[]> {
