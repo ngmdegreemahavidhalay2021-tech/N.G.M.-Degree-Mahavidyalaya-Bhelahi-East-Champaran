@@ -6,7 +6,6 @@ import {
   User,
   ArrowRight,
   HelpCircle,
-  BookOpen,
   KeyRound,
   CheckCircle2,
   Database,
@@ -22,7 +21,7 @@ interface PortalLoginPageProps {
   onLoginSuccess: (admin: AdminProfile, token: string) => void;
   onRequireSetup: (setupToken: string) => void;
   onOpenRecovery: () => void;
-  onOpenDeployGuide: () => void;
+  onOpenDeployGuide?: () => void;
 }
 
 export const PortalLoginPage: React.FC<PortalLoginPageProps> = ({
@@ -100,16 +99,6 @@ export const PortalLoginPage: React.FC<PortalLoginPageProps> = ({
               <h1 className="text-base font-bold text-white tracking-tight">{collegeName}</h1>
               <p className="text-xs text-blue-400 font-medium">Practical Examination Marks Administration ERP</p>
             </div>
-          </div>
-
-          <div className="flex items-center gap-2">
-            <button
-              onClick={onOpenDeployGuide}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold text-slate-300 hover:text-white bg-slate-800/80 hover:bg-slate-800 border border-slate-700/60 transition-colors"
-            >
-              <BookOpen className="w-3.5 h-3.5 text-emerald-400" />
-              <span>Deployment Architecture</span>
-            </button>
           </div>
         </div>
       </header>

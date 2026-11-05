@@ -40,7 +40,6 @@ import { PublicPracticalForm } from './components/PublicPracticalForm';
 import { AdminLoginModal } from './components/AdminLoginModal';
 import { BootstrapSetupModal } from './components/BootstrapSetupModal';
 import { PasswordRecoveryModal } from './components/PasswordRecoveryModal';
-import { DeploymentGuideModal } from './components/DeploymentGuideModal';
 import { PortalLoginPage } from './components/PortalLoginPage';
 import { ProfileModule } from './components/ProfileModule';
 import { AcademicSessionModule } from './components/AcademicSessionModule';
@@ -112,7 +111,6 @@ export default function App() {
   const [showBootstrapModal, setShowBootstrapModal] = useState(false);
   const [setupToken, setSetupToken] = useState<string | null>(null);
   const [showRecoveryModal, setShowRecoveryModal] = useState(false);
-  const [showDeploymentGuide, setShowDeploymentGuide] = useState(false);
 
   // Apply Appearance Theme & Typography to Document
   const applyAppearance = (settings: AppearanceSettings) => {
@@ -377,7 +375,6 @@ export default function App() {
           onLoginSuccess={handleLoginSuccess}
           onRequireSetup={handleRequireSetup}
           onOpenRecovery={() => setShowRecoveryModal(true)}
-          onOpenDeployGuide={() => setShowDeploymentGuide(true)}
         />
 
         {showBootstrapModal && setupToken && (
@@ -406,10 +403,6 @@ export default function App() {
             }}
           />
         )}
-
-        {showDeploymentGuide && (
-          <DeploymentGuideModal onClose={() => setShowDeploymentGuide(false)} />
-        )}
       </>
     );
   }
@@ -423,7 +416,6 @@ export default function App() {
         collegeName={collegeName}
         adminUsername={admin?.username}
         onLogout={handleLogout}
-        onOpenDeploymentGuide={() => setShowDeploymentGuide(true)}
         onSeedDemoData={handleSeedDemoData}
       />
 
@@ -441,14 +433,6 @@ export default function App() {
           </div>
 
           <div className="flex items-center gap-3">
-            <button
-              onClick={() => setShowDeploymentGuide(true)}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-slate-800 hover:bg-slate-700 text-emerald-400 border border-slate-700 transition-colors"
-            >
-              <BookOpen className="w-3.5 h-3.5" />
-              <span className="hidden sm:inline">Deployment Guide</span>
-            </button>
-
             {admin ? (
               <div className="flex items-center gap-2 pl-2 border-l border-slate-800">
                 <span className="text-xs text-slate-300 font-semibold font-mono hidden md:inline">
@@ -476,46 +460,6 @@ export default function App() {
 
         {/* Content Body */}
         <main className="flex-1 p-6 space-y-6 max-w-7xl w-full mx-auto">
-          {/* Bootstrap Notice Banner (if system is pending first-time admin setup) */}
-          {!loading && !bootstrapStatus?.isBootstrapped && !admin && (
-            <div className="p-4 sm:p-5 rounded-2xl bg-gradient-to-r from-amber-500/15 via-blue-500/10 to-emerald-500/10 border border-amber-500/30 shadow-2xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-              <div className="flex items-start gap-3.5">
-                <div className="p-2.5 rounded-xl bg-amber-500/20 text-amber-300 border border-amber-500/30 shrink-0">
-                  <ShieldCheck className="w-6 h-6" />
-                </div>
-                <div>
-                  <div className="flex items-center gap-2">
-                    <h3 className="text-base font-bold text-amber-300">
-                      System Ready for First-Time Administrator Bootstrap
-                    </h3>
-                    <span className="px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-amber-400 text-slate-950 uppercase">
-                      Setup Required
-                    </span>
-                  </div>
-                  <p className="text-xs text-slate-300 mt-1 leading-relaxed">
-                    First-time setup mode is active. Log in with initial credentials:{' '}
-                    <code className="px-1.5 py-0.5 rounded bg-slate-900 border border-slate-700 text-amber-300 font-mono">
-                      Username: ADMIN
-                    </code>{' '}
-                    &{' '}
-                    <code className="px-1.5 py-0.5 rounded bg-slate-900 border border-slate-700 text-amber-300 font-mono">
-                      Password: 123
-                    </code>{' '}
-                    to configure your permanent identity.
-                  </p>
-                </div>
-              </div>
-
-              <button
-                onClick={() => setShowLoginModal(true)}
-                className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl text-xs font-bold bg-amber-500 hover:bg-amber-400 text-slate-950 shadow-lg shadow-amber-500/20 whitespace-nowrap transition-all"
-              >
-                <KeyRound className="w-4 h-4" />
-                <span>Initialize Admin</span>
-              </button>
-            </div>
-          )}
-
           {/* MODULE 1: DASHBOARD OVERVIEW */}
           {activeModule === 'overview' && (
             <div className="space-y-6">
@@ -848,10 +792,6 @@ export default function App() {
             setShowLoginModal(false);
             setShowRecoveryModal(true);
           }}
-          onOpenDeploymentGuide={() => {
-            setShowLoginModal(false);
-            setShowDeploymentGuide(true);
-          }}
           onClose={() => setShowLoginModal(false)}
         />
       )}
@@ -882,10 +822,6 @@ export default function App() {
             setShowLoginModal(true);
           }}
         />
-      )}
-
-      {showDeploymentGuide && (
-        <DeploymentGuideModal onClose={() => setShowDeploymentGuide(false)} />
       )}
     </div>
   );

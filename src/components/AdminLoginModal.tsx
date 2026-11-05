@@ -4,12 +4,9 @@ import {
   User,
   KeyRound,
   AlertCircle,
-  HelpCircle,
   ShieldCheck,
-  CheckCircle,
-  Sparkles,
 } from 'lucide-react';
-import { loginAdministrator, loginInitialBootstrap } from '../services/examService';
+import { loginAdministrator } from '../services/examService';
 import { AdminProfile, SystemBootstrapStatus } from '../types';
 
 interface AdminLoginModalProps {
@@ -17,7 +14,7 @@ interface AdminLoginModalProps {
   onLoginSuccess: (admin: AdminProfile, token: string) => void;
   onRequireSetup: (setupToken: string) => void;
   onOpenRecovery: () => void;
-  onOpenDeploymentGuide: () => void;
+  onOpenDeploymentGuide?: () => void;
   onClose?: () => void;
 }
 
@@ -70,11 +67,6 @@ export const AdminLoginModal: React.FC<AdminLoginModalProps> = ({
     }
   };
 
-  const handleFillDemoInitial = () => {
-    setUsername('ADMIN');
-    setPassword('123');
-  };
-
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/85 backdrop-blur-md">
       <div className="relative w-full max-w-md bg-slate-900 border border-slate-800 rounded-2xl shadow-2xl p-6 sm:p-8">
@@ -99,37 +91,6 @@ export const AdminLoginModal: React.FC<AdminLoginModalProps> = ({
             {bootstrapStatus?.institutionName || 'NGM Degree Mahavidyalaya'}
           </p>
         </div>
-
-        {/* State Notice Card */}
-        {isInitialState ? (
-          <div className="mb-5 p-3.5 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-200 text-xs">
-            <div className="flex items-center justify-between mb-1">
-              <span className="font-semibold text-amber-300 flex items-center gap-1.5">
-                <Sparkles className="w-3.5 h-3.5" /> Initial Admin Bootstrap
-              </span>
-              <button
-                type="button"
-                onClick={handleFillDemoInitial}
-                className="text-[11px] underline text-amber-400 hover:text-amber-200"
-              >
-                Auto-fill initial
-              </button>
-            </div>
-            <p className="text-slate-300">
-              The system is in initial setup mode. Use the temporary credentials to proceed to the First-Time Admin Setup page:
-            </p>
-            <div className="mt-2 flex items-center gap-2 font-mono text-[11px] bg-slate-950/60 p-2 rounded border border-slate-800">
-              <span>Username: <strong className="text-amber-300">ADMIN</strong></span>
-              <span className="text-slate-600">|</span>
-              <span>Password: <strong className="text-amber-300">123</strong></span>
-            </div>
-          </div>
-        ) : (
-          <div className="mb-5 p-3 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-emerald-300 text-xs flex items-center gap-2">
-            <CheckCircle className="w-4 h-4 shrink-0 text-emerald-400" />
-            <span>Permanent administrator account active. Sign in with your configured credentials.</span>
-          </div>
-        )}
 
         {error && (
           <div className="flex items-center gap-2 p-3 mb-4 rounded-lg bg-rose-500/10 border border-rose-500/30 text-rose-300 text-xs">
@@ -199,16 +160,6 @@ export const AdminLoginModal: React.FC<AdminLoginModalProps> = ({
             )}
           </button>
         </form>
-
-        <div className="mt-6 pt-4 border-t border-slate-800 text-center">
-          <button
-            onClick={onOpenDeploymentGuide}
-            className="text-xs text-slate-400 hover:text-slate-200 inline-flex items-center gap-1.5 transition-colors"
-          >
-            <HelpCircle className="w-3.5 h-3.5 text-emerald-400" />
-            <span>View GitHub & Vercel Deployment Documentation</span>
-          </button>
-        </div>
       </div>
     </div>
   );

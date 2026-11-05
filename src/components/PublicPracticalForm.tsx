@@ -17,9 +17,10 @@ import {
   RotateCcw,
   BookOpen,
   Layers,
-  ArrowRight,
   ShieldCheck,
   RefreshCw,
+  ArrowUpDown,
+  Sparkles,
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import {
@@ -45,8 +46,8 @@ import {
   getFormActiveSubjects,
   logActivity,
 } from '../services/collegeService';
-import { doc, onSnapshot } from 'firebase/firestore';
-import { db } from '../lib/firebase';
+import { doc, getDoc, onSnapshot } from 'firebase/firestore';
+import { db, auth } from '../lib/firebase';
 import * as XLSX from 'xlsx';
 
 interface PublicPracticalFormProps {
@@ -71,9 +72,32 @@ interface ExcelImportRowError {
   reason: string;
 }
 
+// Highlight matched text in search results
+const HighlightedText: React.FC<{ text: string; query: string }> = ({ text, query }) => {
+  if (!query || !query.trim()) return <>{text}</>;
+  const trimmed = query.trim();
+  const escaped = trimmed.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const regex = new RegExp(`(${escaped})`, 'gi');
+  const parts = text.split(regex);
+  return (
+    <>
+      {parts.map((part, i) =>
+        part.toLowerCase() === trimmed.toLowerCase() ? (
+          <mark key={i} className="bg-amber-200 text-amber-950 font-bold px-0.5 rounded-xs">
+            {part}
+          </mark>
+        ) : (
+          part
+        )
+      )}
+    </>
+  );
+};
+
 export const PublicPracticalForm: React.FC<PublicPracticalFormProps> = ({
   token,
   collegeName = 'NGM Degree Mahavidyalaya',
+  onExit,
 }) => {
   // Form entities
   const [assignment, setAssignment] = useState<ExaminerAssignment | null>(null);
@@ -102,6 +126,16 @@ export const PublicPracticalForm: React.FC<PublicPracticalFormProps> = ({
   // Examiner name & table search
   const [inchargeDisplayName, setInchargeDisplayName] = useState('');
   const [tableSearch, setTableSearch] = useState('');
+
+  // 3-Step Sorting Mode: roll_asc -> pending_first -> promoted_first -> roll_asc
+  const [sortMode, setSortMode] = useState<'roll_asc' | 'pending_first' | 'promoted_first'>('roll_asc');
+  const handleCycleSortMode = () => {
+    setSortMode((prev) => {
+      if (prev === 'roll_asc') return 'pending_first';
+      if (prev === 'pending_first') return 'promoted_first';
+      return 'roll_asc';
+    });
+  };
 
   // Final submission state
   const [submitting, setSubmitting] = useState(false);
@@ -147,42 +181,106 @@ export const PublicPracticalForm: React.FC<PublicPracticalFormProps> = ({
     loadExaminationData();
   }, [token]);
 
-  // Live real-time sync for form metadata (lock state, status, active toggle, deactivation)
+  // Live sync for form metadata (lock state, status, active toggle, deactivation)
   useEffect(() => {
     if (!practicalForm?.id) return;
-    const unsub = onSnapshot(
-      doc(db, 'practicalForms', practicalForm.id),
-      (snap) => {
-        if (!snap.exists()) {
-          setError('This practical examination form has been deleted or archived by College Administration.');
-          return;
+    let active = true;
+
+    if (auth.currentUser) {
+      const unsub = onSnapshot(
+        doc(db, 'practicalForms', practicalForm.id),
+        (snap) => {
+          if (!active) return;
+          if (!snap.exists()) {
+            setError('This practical examination form has been deleted or archived by College Administration.');
+            return;
+          }
+          const data = snap.data() as PracticalForm;
+          setPracticalForm((prev) => (prev ? { ...prev, ...data } : null));
+          if (!data.isActive) {
+            setError('This practical examination link has been disabled by College Administration.');
+          }
+        },
+        (err) => {
+          console.warn('Real-time practicalForm snapshot notice:', err);
         }
-        const data = snap.data() as PracticalForm;
-        setPracticalForm((prev) => (prev ? { ...prev, ...data } : null));
-        if (!data.isActive) {
-          setError('This practical examination link has been disabled by College Administration.');
-        } else if (data.status === 'closed') {
-          // Closed by admin
+      );
+      return () => {
+        active = false;
+        unsub();
+      };
+    }
+
+    // Polled refresh for unauthenticated incharge link (every 15s)
+    const interval = setInterval(async () => {
+      if (!active) return;
+      try {
+        const snap = await getDoc(doc(db, 'practicalForms', practicalForm.id));
+        if (active && snap.exists()) {
+          const data = snap.data() as PracticalForm;
+          setPracticalForm((prev) => (prev ? { ...prev, ...data } : null));
+          if (!data.isActive) {
+            setError('This practical examination link has been disabled by College Administration.');
+          }
         }
-      },
-      (err) => {
-        console.warn('Real-time practicalForm snapshot notice:', err);
+      } catch {
+        // Silently ignore background polling transient issues
       }
-    );
-    return () => unsub();
+    }, 15000);
+
+    return () => {
+      active = false;
+      clearInterval(interval);
+    };
   }, [practicalForm?.id]);
 
   const loadExaminationData = async () => {
+    const cleanToken = (token || '').trim();
+    if (!cleanToken) {
+      setError('No token provided in the URL. Please verify your token link with College Administration.');
+      setLoading(false);
+      return;
+    }
+
     try {
       setLoading(true);
       setError(null);
 
+      // Timeout wrapper to ensure we never hang forever
+      const fetchWithTimeout = async () => {
+        // Query both models in parallel for rapid response
+        const [asgn, form] = await Promise.all([
+          getExaminerAssignmentByToken(cleanToken).catch((err) => {
+            console.warn('Assignment lookup notice:', err);
+            return null;
+          }),
+          getPracticalFormByToken(cleanToken).catch((err) => {
+            console.warn('Practical form lookup notice:', err);
+            return null;
+          }),
+        ]);
+        return { asgn, form };
+      };
+
+      const timeoutPromise = new Promise<{ asgn: null; form: null }>((_, reject) =>
+        setTimeout(
+          () =>
+            reject(
+              new Error(
+                'Connection timed out while loading the examination form. Please verify your internet connection or retry.'
+              )
+            ),
+          12000
+        )
+      );
+
+      const { asgn, form } = await Promise.race([fetchWithTimeout(), timeoutPromise]);
+
       // 1. Check ExaminerAssignment (Single Subject Assignment Model)
-      const asgn = await getExaminerAssignmentByToken(token);
       if (asgn) {
         setAssignment(asgn);
         setInchargeDisplayName(asgn.inchargeName || asgn.examinerName || 'Subject Incharge');
-        const asgnSubject = asgn.subjectName.trim().toUpperCase();
+        const asgnSubject = (asgn.subjectName || '').trim().toUpperCase();
         setActiveSubject(asgnSubject);
         setAssignedSubjects([
           {
@@ -197,15 +295,15 @@ export const PublicPracticalForm: React.FC<PublicPracticalFormProps> = ({
 
         const paperStudents = await getPaperStudents(asgn.paperId);
         const filtered = paperStudents.filter(
-          (s) => s.subject.toUpperCase() === asgnSubject && s.status !== 'removed'
+          (s) => (s.subject || '').toUpperCase() === asgnSubject && s.status !== 'removed'
         );
 
         const mapped: EvaluatedStudentItem[] = filtered.map((s) => ({
           studentId: s.id,
-          rollNumber: s.rollNumber,
-          studentName: s.studentName,
-          subject: s.subject,
-          fatherName: s.fatherName,
+          rollNumber: String(s.rollNumber || ''),
+          studentName: String(s.studentName || ''),
+          subject: s.subject || asgnSubject,
+          fatherName: s.fatherName || '',
         }));
         setCandidates(mapped);
         setSubjectCandidateCounts({ [asgnSubject]: mapped.length });
@@ -232,7 +330,6 @@ export const PublicPracticalForm: React.FC<PublicPracticalFormProps> = ({
       }
 
       // 2. PracticalForm Model (Supports Multiple Subjects assigned to one Incharge)
-      const form = await getPracticalFormByToken(token);
       if (form) {
         if (!form.isActive) {
           setError('This practical examination link has been disabled by College Administration.');
@@ -251,9 +348,10 @@ export const PublicPracticalForm: React.FC<PublicPracticalFormProps> = ({
         setAssignedSubjects(activeSubjs);
 
         // Pick initial active subject
-        const initialSubj = activeSubject && activeSubjs.some((s) => s.subjectName.toUpperCase() === activeSubject.toUpperCase())
-          ? activeSubject
-          : activeSubjs[0]?.subjectName || form.subjectName || 'GEOGRAPHY';
+        const initialSubj =
+          activeSubject && activeSubjs.some((s) => s.subjectName.toUpperCase() === activeSubject.toUpperCase())
+            ? activeSubject
+            : activeSubjs[0]?.subjectName || form.subjectName || 'GEOGRAPHY';
         setActiveSubject(initialSubj);
 
         // Fetch all form enrollments and marks from Firestore
@@ -261,9 +359,10 @@ export const PublicPracticalForm: React.FC<PublicPracticalFormProps> = ({
         return;
       }
 
-      setError('Invalid or expired practical examination link. Please check your token URL.');
+      setError('Invalid or expired practical examination link. No matching examination record found for this token.');
     } catch (err: any) {
-      setError(err.message || 'Failed to load examination form');
+      console.error('Error loading examination data:', err);
+      setError(err.message || 'Failed to load examination form. Please check network connection and try again.');
     } finally {
       setLoading(false);
     }
@@ -300,10 +399,10 @@ export const PublicPracticalForm: React.FC<PublicPracticalFormProps> = ({
 
       const mapped: EvaluatedStudentItem[] = currentEnrs.map((e) => ({
         studentId: e.studentId,
-        rollNumber: e.rollNumber,
-        studentName: e.studentName,
+        rollNumber: String(e.rollNumber || ''),
+        studentName: String(e.studentName || ''),
         subject: cleanSubj,
-        fatherName: e.fatherName,
+        fatherName: e.fatherName || '',
       }));
       setCandidates(mapped);
 
@@ -894,9 +993,26 @@ export const PublicPracticalForm: React.FC<PublicPracticalFormProps> = ({
   if (loading) {
     return (
       <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4">
-        <div className="flex flex-col items-center gap-3">
-          <div className="w-10 h-10 border-4 border-blue-600 border-t-transparent rounded-full animate-spin" />
-          <p className="text-xs text-slate-600 font-semibold">Loading Practical Examination Link...</p>
+        <div className="max-w-sm w-full bg-white border border-slate-200 rounded-2xl shadow-xl p-6 text-center space-y-4">
+          <div className="w-12 h-12 border-4 border-blue-600 border-t-transparent rounded-full animate-spin mx-auto" />
+          <div>
+            <h3 className="text-sm font-bold text-slate-800">{collegeName}</h3>
+            <p className="text-xs text-blue-600 font-semibold mt-0.5">Connecting to Marks Evaluation Portal...</p>
+          </div>
+          <p className="text-[11px] text-slate-400">Verifying secure token authorization with Firebase Firestore</p>
+          <div className="pt-2">
+            <button
+              onClick={() => {
+                setLoading(true);
+                setError(null);
+                loadExaminationData();
+              }}
+              className="text-[11px] text-slate-500 hover:text-blue-600 inline-flex items-center gap-1.5 font-medium transition-colors"
+            >
+              <RefreshCw className="w-3.5 h-3.5" />
+              <span>Taking too long? Click to Retry</span>
+            </button>
+          </div>
         </div>
       </div>
     );
@@ -906,12 +1022,37 @@ export const PublicPracticalForm: React.FC<PublicPracticalFormProps> = ({
     return (
       <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4">
         <div className="max-w-md w-full bg-white border border-slate-200 rounded-2xl shadow-xl p-8 text-center space-y-4">
-          <AlertCircle className="w-12 h-12 text-rose-500 mx-auto" />
-          <h2 className="text-lg font-bold text-slate-800">Examination Link Inaccessible</h2>
-          <p className="text-xs text-slate-500 leading-relaxed">{error}</p>
-          <span className="text-[11px] text-slate-400 block pt-2">
-            Please verify the token URL with College Administration.
-          </span>
+          <div className="w-14 h-14 rounded-2xl bg-rose-50 border border-rose-200 flex items-center justify-center text-rose-600 mx-auto">
+            <AlertCircle className="w-8 h-8" />
+          </div>
+          <h2 className="text-lg font-bold text-slate-900">Examination Link Inaccessible</h2>
+          <p className="text-xs text-slate-600 leading-relaxed bg-slate-50 p-3 rounded-xl border border-slate-200 text-left">
+            {error}
+          </p>
+          <div className="pt-2 flex flex-col gap-2">
+            <button
+              onClick={() => {
+                setLoading(true);
+                setError(null);
+                loadExaminationData();
+              }}
+              className="w-full inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold bg-blue-600 hover:bg-blue-500 text-white shadow-md shadow-blue-500/25 transition-all"
+            >
+              <RotateCcw className="w-4 h-4" />
+              <span>Retry Connection</span>
+            </button>
+            {onExit && (
+              <button
+                onClick={onExit}
+                className="w-full px-4 py-2 rounded-xl text-xs font-semibold text-slate-600 hover:bg-slate-100 transition-colors"
+              >
+                Return to College Portal
+              </button>
+            )}
+          </div>
+          <div className="text-[11px] text-slate-400 block pt-1 border-t border-slate-100">
+            Token: <code className="font-mono text-slate-600 bg-slate-100 px-1.5 py-0.5 rounded text-[10px] break-all">{token || 'None'}</code>
+          </div>
         </div>
       </div>
     );
@@ -930,11 +1071,120 @@ export const PublicPracticalForm: React.FC<PublicPracticalFormProps> = ({
     else pendingCount++;
   });
 
-  const filteredCandidates = candidates.filter(
-    (c) =>
-      c.rollNumber.toLowerCase().includes(tableSearch.toLowerCase()) ||
-      c.studentName.toLowerCase().includes(tableSearch.toLowerCase())
-  );
+  // Categorize students: First 2 numeric digits of roll number
+  // Highest prefix = Regular, lower prefixes = Promoted, non-numeric/missing = Unclassified
+  const candidateCategories = React.useMemo(() => {
+    const prefixMap = new Map<string, number>();
+    const validPrefixes: number[] = [];
+
+    candidates.forEach((c) => {
+      const rollStr = String(c.rollNumber || '').trim();
+      const match = rollStr.match(/^(\d{2})/);
+      if (match) {
+        const num = parseInt(match[1], 10);
+        prefixMap.set(c.studentId, num);
+        validPrefixes.push(num);
+      }
+    });
+
+    const maxPrefix = validPrefixes.length > 0 ? Math.max(...validPrefixes) : null;
+    const result = new Map<string, 'regular' | 'promoted' | 'unclassified'>();
+
+    candidates.forEach((c) => {
+      const p = prefixMap.get(c.studentId);
+      if (p !== undefined && maxPrefix !== null) {
+        if (p === maxPrefix) {
+          result.set(c.studentId, 'regular');
+        } else if (p < maxPrefix) {
+          result.set(c.studentId, 'promoted');
+        } else {
+          result.set(c.studentId, 'regular');
+        }
+      } else {
+        result.set(c.studentId, 'unclassified');
+      }
+    });
+
+    return result;
+  }, [candidates]);
+
+  // Global live search across other allotted subjects for this Incharge
+  const crossSubjectMatches = React.useMemo(() => {
+    const q = tableSearch.trim().toLowerCase();
+    if (!q) return [];
+
+    const cleanActive = activeSubject.trim().toUpperCase();
+    const matches: Array<{
+      subjectName: string;
+      studentName: string;
+      rollNumber: string;
+    }> = [];
+
+    allEnrollments.forEach((e) => {
+      const subj = (e.subject || practicalForm?.subjectName || '').trim().toUpperCase();
+      if (subj && subj !== cleanActive) {
+        const roll = String(e.rollNumber || '').toLowerCase();
+        const sName = String(e.studentName || '').toLowerCase();
+        if (roll.includes(q) || sName.includes(q)) {
+          matches.push({
+            subjectName: subj,
+            studentName: e.studentName,
+            rollNumber: e.rollNumber,
+          });
+        }
+      }
+    });
+
+    return matches;
+  }, [tableSearch, allEnrollments, activeSubject, practicalForm]);
+
+  // Sorted and Filtered Candidates for the Active Subject
+  const filteredCandidates = React.useMemo(() => {
+    const query = tableSearch.trim().toLowerCase();
+    let list = candidates.filter((c) => {
+      if (!query) return true;
+      const roll = String(c.rollNumber || '').toLowerCase();
+      const sName = String(c.studentName || '').toLowerCase();
+      return roll.includes(query) || sName.includes(query);
+    });
+
+    return [...list].sort((a, b) => {
+      const rollA = String(a.rollNumber || '');
+      const rollB = String(b.rollNumber || '');
+
+      if (sortMode === 'pending_first') {
+        const inpA = inputMap[a.studentId];
+        const inpB = inputMap[b.studentId];
+        const isPendingA = !inpA || (inpA.isPresent && (inpA.marks === '' || inpA.marks === null || inpA.marks === undefined));
+        const isPendingB = !inpB || (inpB.isPresent && (inpB.marks === '' || inpB.marks === null || inpB.marks === undefined));
+
+        if (isPendingA && !isPendingB) return -1;
+        if (!isPendingA && isPendingB) return 1;
+
+        return rollA.localeCompare(rollB, undefined, { numeric: true, sensitivity: 'base' });
+      }
+
+      if (sortMode === 'promoted_first') {
+        const catA = candidateCategories.get(a.studentId) || 'unclassified';
+        const catB = candidateCategories.get(b.studentId) || 'unclassified';
+
+        const weight: Record<'promoted' | 'regular' | 'unclassified', number> = {
+          promoted: 1,
+          regular: 2,
+          unclassified: 3,
+        };
+
+        if (weight[catA] !== weight[catB]) {
+          return weight[catA] - weight[catB];
+        }
+
+        return rollA.localeCompare(rollB, undefined, { numeric: true, sensitivity: 'base' });
+      }
+
+      // Default 'roll_asc': Natural ascending roll number sort
+      return rollA.localeCompare(rollB, undefined, { numeric: true, sensitivity: 'base' });
+    });
+  }, [candidates, tableSearch, sortMode, inputMap, candidateCategories]);
 
   return (
     <div className="min-h-screen bg-slate-50 text-slate-800 antialiased font-sans pb-16">
@@ -1129,15 +1379,58 @@ export const PublicPracticalForm: React.FC<PublicPracticalFormProps> = ({
         {/* INCHARGE MARKS ENTRY TABLE (EXACT 5 COLUMNS) */}
         <div className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden p-5 space-y-4">
           <div className="flex flex-col sm:flex-row items-center justify-between gap-3">
-            <div className="relative w-full sm:w-80">
-              <Search className="w-4 h-4 absolute left-3 top-2.5 text-slate-400" />
-              <input
-                type="text"
-                value={tableSearch}
-                onChange={(e) => setTableSearch(e.target.value)}
-                placeholder={`Search in ${activeSubject} by roll or student name...`}
-                className="w-full pl-9 pr-3 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-800 focus:outline-none focus:border-blue-500"
-              />
+            <div className="flex flex-wrap items-center gap-2.5 w-full sm:w-auto">
+              {/* Global Real-Time Search Input with Clear Button */}
+              <div className="relative flex-1 sm:w-80">
+                <Search className="w-4 h-4 absolute left-3 top-2.5 text-slate-400" />
+                <input
+                  type="text"
+                  value={tableSearch}
+                  onChange={(e) => setTableSearch(e.target.value)}
+                  placeholder={`Search by Roll No. or Student Name...`}
+                  className="w-full pl-9 pr-8 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-800 focus:outline-none focus:border-blue-500 focus:bg-white transition"
+                />
+                {tableSearch && (
+                  <button
+                    type="button"
+                    onClick={() => setTableSearch('')}
+                    className="absolute right-2.5 top-2.5 text-slate-400 hover:text-slate-600 cursor-pointer"
+                    title="Clear search"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                )}
+              </div>
+
+              {/* Three-Step Sorting System Button */}
+              <button
+                type="button"
+                onClick={handleCycleSortMode}
+                className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold border transition-all cursor-pointer shadow-xs bg-white text-slate-700 border-slate-300 hover:bg-slate-50 hover:border-slate-400 shrink-0"
+                title="Click to cycle sorting modes: Roll No ↑ -> Pending First -> Promoted First"
+              >
+                {sortMode === 'roll_asc' && (
+                  <>
+                    <ArrowUpDown className="w-3.5 h-3.5 text-blue-600 shrink-0" />
+                    <span>Sort: Roll No. ↑</span>
+                    <span className="px-1.5 py-0.2 rounded text-[10px] font-mono bg-blue-50 text-blue-700 border border-blue-200">1/3</span>
+                  </>
+                )}
+                {sortMode === 'pending_first' && (
+                  <>
+                    <Clock className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+                    <span>Sort: Pending First</span>
+                    <span className="px-1.5 py-0.2 rounded text-[10px] font-mono bg-amber-50 text-amber-700 border border-amber-200">2/3</span>
+                  </>
+                )}
+                {sortMode === 'promoted_first' && (
+                  <>
+                    <Sparkles className="w-3.5 h-3.5 text-purple-600 shrink-0" />
+                    <span>Sort: Promoted First</span>
+                    <span className="px-1.5 py-0.2 rounded text-[10px] font-mono bg-purple-50 text-purple-700 border border-purple-200">3/3</span>
+                  </>
+                )}
+              </button>
             </div>
 
             {!isLocked && (
@@ -1166,13 +1459,37 @@ export const PublicPracticalForm: React.FC<PublicPracticalFormProps> = ({
             )}
           </div>
 
+          {/* Cross-Subject Global Match Notification */}
+          {crossSubjectMatches.length > 0 && (
+            <div className="p-3 bg-indigo-50 border border-indigo-200 rounded-xl text-xs flex flex-wrap items-center justify-between gap-2 text-indigo-900 shadow-xs">
+              <div className="flex items-center gap-2">
+                <Search className="w-4 h-4 text-indigo-600 shrink-0" />
+                <span>
+                  Found <strong>{crossSubjectMatches.length}</strong> matching candidate(s) in other assigned subject(s):
+                </span>
+              </div>
+              <div className="flex flex-wrap gap-1.5">
+                {Array.from(new Set(crossSubjectMatches.map((m) => m.subjectName))).map((sName) => (
+                  <button
+                    key={sName}
+                    type="button"
+                    onClick={() => handleSwitchSubject(sName)}
+                    className="px-2.5 py-1 rounded-lg text-xs font-bold bg-indigo-600 text-white hover:bg-indigo-700 transition cursor-pointer shadow-xs"
+                  >
+                    Switch to {sName}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
           {/* SIMPLIFIED 5-COLUMN TABLE */}
           <div className="overflow-x-auto border border-slate-200 rounded-xl">
             <table className="w-full text-left text-xs">
               <thead className="bg-slate-100/80 border-b border-slate-200 text-slate-600 font-bold uppercase text-[11px] tracking-wider">
                 <tr>
                   <th className="py-3 px-3 w-16 text-center">1. SN.</th>
-                  <th className="py-3 px-4 w-36">2. ROLL NO.</th>
+                  <th className="py-3 px-4 w-44">2. ROLL NO.</th>
                   <th className="py-3 px-4">3. NAME OF STUDENT</th>
                   <th className="py-3 px-4 w-40 text-center">4. MARKS</th>
                   <th className="py-3 px-4 w-32 text-center">5. STATUS</th>
@@ -1190,6 +1507,7 @@ export const PublicPracticalForm: React.FC<PublicPracticalFormProps> = ({
                     const inp = inputMap[c.studentId] || { marks: '', isPresent: true, remarks: '' };
                     const isPresent = inp.isPresent;
                     const hasMark = isPresent && inp.marks !== '' && !isNaN(Number(inp.marks));
+                    const category = candidateCategories.get(c.studentId) || 'unclassified';
 
                     return (
                       <tr
@@ -1201,15 +1519,34 @@ export const PublicPracticalForm: React.FC<PublicPracticalFormProps> = ({
                           {idx + 1}
                         </td>
 
-                        {/* 2. ROLL NO. */}
+                        {/* 2. ROLL NO. (with Classification Badge) */}
                         <td className="py-3 px-4 font-mono font-bold text-slate-900">
-                          {c.rollNumber}
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <span>
+                              <HighlightedText text={c.rollNumber} query={tableSearch} />
+                            </span>
+                            {category === 'promoted' && (
+                              <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-100 text-amber-800 border border-amber-300">
+                                Promoted
+                              </span>
+                            )}
+                            {category === 'regular' && (
+                              <span className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-slate-100 text-slate-600 border border-slate-200">
+                                Regular
+                              </span>
+                            )}
+                            {category === 'unclassified' && (
+                              <span className="px-1.5 py-0.5 rounded text-[10px] font-normal bg-zinc-100 text-zinc-500">
+                                Unclassified
+                              </span>
+                            )}
+                          </div>
                         </td>
 
                         {/* 3. NAME OF STUDENT (with Father's Name directly below) */}
                         <td className="py-3 px-4">
                           <div className="font-semibold text-slate-900 leading-snug">
-                            {c.studentName}
+                            <HighlightedText text={c.studentName} query={tableSearch} />
                           </div>
                           <div className="text-[11px] text-slate-500 font-normal mt-0.5">
                             {c.fatherName ? `Father's Name: ${c.fatherName}` : "Father's Name: —"}

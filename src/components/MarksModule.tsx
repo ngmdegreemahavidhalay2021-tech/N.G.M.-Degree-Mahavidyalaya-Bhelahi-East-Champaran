@@ -38,6 +38,7 @@ import {
   calculateResultStatus,
   subscribeToFormEnrollments,
   subscribeToFormMarks,
+  getFormActiveSubjects,
 } from '../services/collegeService';
 import { exportSingleFormExcel } from '../lib/collegeExport';
 
@@ -55,6 +56,7 @@ export const MarksModule: React.FC<MarksModuleProps> = ({
   onRefresh,
 }) => {
   const [activeFormId, setActiveFormId] = useState(selectedFormId || forms[0]?.id || '');
+  const [activeSubjectTab, setActiveSubjectTab] = useState<string>('ALL');
   const [mode, setMode] = useState<'bulk' | 'individual' | 'enrollment'>('bulk');
   const [enrollments, setEnrollments] = useState<FormEnrollment[]>([]);
   const [marksList, setMarksList] = useState<MarksRecord[]>([]);
@@ -215,6 +217,7 @@ export const MarksModule: React.FC<MarksModuleProps> = ({
       const recordsToSave = enrollments.map((enr) => {
         const input = inputMap[enr.studentId] || { marks: '', isPresent: true, remarks: '' };
         const numMarks = input.marks !== '' ? Number(input.marks) : null;
+        const candidateSubj = (enr.subject || currentForm.subjectName || '').trim().toUpperCase();
 
         return {
           studentId: enr.studentId,
@@ -224,6 +227,7 @@ export const MarksModule: React.FC<MarksModuleProps> = ({
           isPresent: input.isPresent,
           remarks: input.remarks,
           minPassingMarks: minPass,
+          subject: candidateSubj,
         };
       });
 
@@ -278,18 +282,23 @@ export const MarksModule: React.FC<MarksModuleProps> = ({
       setSaving(true);
       const minPass = currentForm.minPassingMarks ?? Math.round(currentForm.maxMarks * 0.33);
       const resStatus = calculateResultStatus(indivPresent ? numMarks : null, indivPresent, minPass);
+      const candidateSubj = (selectedIndivStudent.subject || currentForm.subjectName || '').trim().toUpperCase();
 
-      await saveSingleMark({
-        practicalFormId: currentForm.id,
-        studentId: selectedIndivStudent.studentId,
-        rollNumber: selectedIndivStudent.rollNumber,
-        studentName: selectedIndivStudent.studentName,
-        marksObtained: indivPresent ? numMarks : null,
-        isPresent: indivPresent,
-        remarks: indivRemarks,
-        resultStatus: resStatus,
-        updatedBy: 'Administrator (Individual Mode)',
-      });
+      await saveSingleMark(
+        {
+          practicalFormId: currentForm.id,
+          studentId: selectedIndivStudent.studentId,
+          rollNumber: selectedIndivStudent.rollNumber,
+          studentName: selectedIndivStudent.studentName,
+          marksObtained: indivPresent ? numMarks : null,
+          isPresent: indivPresent,
+          remarks: indivRemarks,
+          resultStatus: resStatus,
+          subject: candidateSubj,
+          updatedBy: 'Administrator (Individual Mode)',
+        },
+        candidateSubj
+      );
 
       // Synchronize in inputMap immediately
       setInputMap((prev) => ({
@@ -374,7 +383,6 @@ export const MarksModule: React.FC<MarksModuleProps> = ({
       const selectedList = allCollegeStudents.filter((s) => selectedToEnrol.has(s.id));
       await enrollStudentsInForm(currentForm, selectedList);
       setMode('bulk');
-      await loadFormData(currentForm.id);
       onRefresh();
     } catch (err: any) {
       alert(err.message || 'Failed to save enrollments');
@@ -383,11 +391,19 @@ export const MarksModule: React.FC<MarksModuleProps> = ({
     }
   };
 
+  const activeSubjs = currentForm ? getFormActiveSubjects(currentForm) : [];
+
   // Filtered Table rows
   const filteredEnrollments = enrollments.filter((e) => {
-    const matchesSearch =
-      e.rollNumber.toLowerCase().includes(tableSearch.toLowerCase()) ||
-      e.studentName.toLowerCase().includes(tableSearch.toLowerCase());
+    if (activeSubjectTab !== 'ALL') {
+      const enrSubj = (e.subject || currentForm?.subjectName || '').trim().toUpperCase();
+      if (enrSubj !== activeSubjectTab.trim().toUpperCase()) return false;
+    }
+
+    const rollStr = String(e.rollNumber || '').toLowerCase();
+    const nameStr = String(e.studentName || '').toLowerCase();
+    const q = tableSearch.toLowerCase();
+    const matchesSearch = rollStr.includes(q) || nameStr.includes(q);
 
     const input = inputMap[e.studentId];
     let matchesAttendance = true;
@@ -417,37 +433,41 @@ export const MarksModule: React.FC<MarksModuleProps> = ({
   return (
     <div className="space-y-6">
       {/* Top Form Selector & Controls */}
-      <div className="bg-slate-900 border border-slate-800 p-5 rounded-2xl shadow-xl flex flex-col lg:flex-row items-start lg:items-center justify-between gap-4">
-        <div className="w-full lg:w-auto">
-          <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">
-            Active Practical Examination Form:
-          </label>
-          <select
-            value={activeFormId}
-            onChange={(e) => setActiveFormId(e.target.value)}
-            className="w-full lg:w-96 px-3 py-2 bg-slate-950 border border-slate-700 rounded-xl text-xs font-semibold text-slate-100 focus:outline-none focus:border-blue-500"
-          >
-            {forms.map((f) => (
-              <option key={f.id} value={f.id}>
-                {f.subjectCode} — {f.title} ({f.status.toUpperCase()})
-              </option>
-            ))}
-          </select>
-        </div>
-
-        {/* Mode Switcher */}
-        <div className="flex flex-wrap items-center gap-2">
-          <div className="flex bg-slate-950 p-1 rounded-xl border border-slate-800">
-            <button
-              onClick={() => setMode('bulk')}
-              className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
-                mode === 'bulk'
-                  ? 'bg-blue-600 text-white shadow-sm'
-                  : 'text-slate-400 hover:text-slate-200'
-              }`}
+      <div className="bg-slate-900 border border-slate-800 p-5 rounded-2xl shadow-xl flex flex-col gap-4">
+        <div className="flex flex-col lg:flex-row items-start lg:items-center justify-between gap-4">
+          <div className="w-full lg:w-auto">
+            <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">
+              Active Practical Examination Form:
+            </label>
+            <select
+              value={activeFormId}
+              onChange={(e) => {
+                setActiveFormId(e.target.value);
+                setActiveSubjectTab('ALL');
+              }}
+              className="w-full lg:w-96 px-3 py-2 bg-slate-950 border border-slate-700 rounded-xl text-xs font-semibold text-slate-100 focus:outline-none focus:border-blue-500"
             >
-              Mode B: Bulk Entry
-            </button>
+              {forms.map((f) => (
+                <option key={f.id} value={f.id}>
+                  {f.subjectCode} — {f.title} ({f.inchargeName || 'Incharge'})
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {/* Mode Switcher */}
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="flex bg-slate-950 p-1 rounded-xl border border-slate-800">
+              <button
+                onClick={() => setMode('bulk')}
+                className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
+                  mode === 'bulk'
+                    ? 'bg-blue-600 text-white shadow-sm'
+                    : 'text-slate-400 hover:text-slate-200'
+                }`}
+              >
+                Mode B: Bulk Entry
+              </button>
             <button
               onClick={() => setMode('individual')}
               className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
@@ -472,15 +492,62 @@ export const MarksModule: React.FC<MarksModuleProps> = ({
 
           {currentForm && (
             <button
-              onClick={() => exportSingleFormExcel(currentForm, enrollments, marksList)}
-              className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-300 border border-emerald-500/30 transition-colors"
+              onClick={() =>
+                exportSingleFormExcel(
+                  currentForm,
+                  enrollments,
+                  marksList,
+                  undefined,
+                  activeSubjectTab !== 'ALL' ? activeSubjectTab : undefined
+                )
+              }
+              className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-300 border border-emerald-500/30 transition-colors cursor-pointer"
               title="Export Form Marksheet to Excel"
             >
               <FileSpreadsheet className="w-4 h-4 text-emerald-400" />
               <span>Export Sheet</span>
             </button>
           )}
+          </div>
         </div>
+
+        {/* Subject Filter Tabs for Multi-Subject Forms */}
+        {activeSubjs.length > 1 && (
+          <div className="pt-3 border-t border-slate-800/80 flex flex-wrap items-center gap-2">
+            <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider mr-1">
+              Filter by Allotted Subject:
+            </span>
+            <button
+              onClick={() => setActiveSubjectTab('ALL')}
+              className={`px-3 py-1 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
+                activeSubjectTab === 'ALL'
+                  ? 'bg-blue-600 text-white shadow-sm ring-1 ring-blue-400'
+                  : 'bg-slate-950 text-slate-400 hover:text-slate-200 border border-slate-800'
+              }`}
+            >
+              All Subjects ({enrollments.length})
+            </button>
+            {activeSubjs.map((s) => {
+              const clean = s.subjectName.trim().toUpperCase();
+              const count = enrollments.filter(
+                (e) => (e.subject || currentForm?.subjectName || '').trim().toUpperCase() === clean
+              ).length;
+              return (
+                <button
+                  key={clean}
+                  onClick={() => setActiveSubjectTab(clean)}
+                  className={`px-3 py-1 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
+                    activeSubjectTab === clean
+                      ? 'bg-blue-600 text-white shadow-sm ring-1 ring-blue-400'
+                      : 'bg-slate-950 text-slate-400 hover:text-slate-200 border border-slate-800'
+                  }`}
+                >
+                  {clean} ({count})
+                </button>
+              );
+            })}
+          </div>
+        )}
       </div>
 
       {/* Summary Statistics Strip */}
