@@ -36,6 +36,8 @@ import {
   updatePracticalForm,
   getStudents,
   calculateResultStatus,
+  subscribeToFormEnrollments,
+  subscribeToFormMarks,
 } from '../services/collegeService';
 import { exportSingleFormExcel } from '../lib/collegeExport';
 
@@ -87,26 +89,27 @@ export const MarksModule: React.FC<MarksModuleProps> = ({
   const currentForm = forms.find((f) => f.id === activeFormId);
 
   useEffect(() => {
-    if (activeFormId) {
-      loadFormData(activeFormId);
+    if (!forms.some((f) => f.id === activeFormId)) {
+      if (forms.length > 0) {
+        setActiveFormId(forms[0].id);
+      }
     }
-  }, [activeFormId]);
+  }, [forms, activeFormId]);
 
-  const loadFormData = async (formId: string) => {
-    try {
-      setLoading(true);
-      const [enr, mrk] = await Promise.all([
-        getFormEnrollments(formId),
-        getFormMarks(formId),
-      ]);
-      setEnrollments(enr);
-      setMarksList(mrk);
+  useEffect(() => {
+    if (!activeFormId) return;
 
-      // Populate input map from saved marks
+    setLoading(true);
+    const unsubs: Array<() => void> = [];
+
+    let currentEnrs: FormEnrollment[] = [];
+    let currentMarks: MarksRecord[] = [];
+
+    const rebuildInputMap = (enrs: FormEnrollment[], mrks: MarksRecord[]) => {
       const map: Record<string, { marks: string; isPresent: boolean; remarks: string }> = {};
-      const savedByStudent = new Map(mrk.map((m) => [m.studentId, m]));
+      const savedByStudent = new Map(mrks.map((m) => [m.studentId, m]));
 
-      enr.forEach((e) => {
+      enrs.forEach((e) => {
         const saved = savedByStudent.get(e.studentId);
         if (saved) {
           map[e.studentId] = {
@@ -115,7 +118,6 @@ export const MarksModule: React.FC<MarksModuleProps> = ({
             remarks: saved.remarks || '',
           };
         } else {
-          // Empty initial boxes as requested
           map[e.studentId] = {
             marks: '',
             isPresent: true,
@@ -123,15 +125,27 @@ export const MarksModule: React.FC<MarksModuleProps> = ({
           };
         }
       });
-
       setInputMap(map);
       setHasUnsavedChanges(false);
-    } catch (err) {
-      console.error('Error loading form data:', err);
-    } finally {
       setLoading(false);
-    }
-  };
+    };
+
+    const u1 = subscribeToFormEnrollments(activeFormId, (enrs) => {
+      currentEnrs = enrs;
+      setEnrollments(enrs);
+      rebuildInputMap(currentEnrs, currentMarks);
+    });
+    unsubs.push(u1);
+
+    const u2 = subscribeToFormMarks(activeFormId, (mrks) => {
+      currentMarks = mrks;
+      setMarksList(mrks);
+      rebuildInputMap(currentEnrs, currentMarks);
+    });
+    unsubs.push(u2);
+
+    return () => unsubs.forEach((u) => u());
+  }, [activeFormId]);
 
   // Bulk Mark Input Change with validation
   const handleBulkMarkChange = (studentId: string, val: string) => {
@@ -217,7 +231,6 @@ export const MarksModule: React.FC<MarksModuleProps> = ({
       setHasUnsavedChanges(false);
       setSaveSuccess(true);
       setTimeout(() => setSaveSuccess(false), 2500);
-      await loadFormData(currentForm.id);
       onRefresh();
     } catch (err: any) {
       alert(err.message || 'Failed to save marks');
@@ -290,7 +303,6 @@ export const MarksModule: React.FC<MarksModuleProps> = ({
 
       setSaveSuccess(true);
       setTimeout(() => setSaveSuccess(false), 2000);
-      await loadFormData(currentForm.id);
       onRefresh();
     } catch (err: any) {
       alert(err.message || 'Failed to save marks');
@@ -309,7 +321,6 @@ export const MarksModule: React.FC<MarksModuleProps> = ({
 
     try {
       await resetFormMarks(currentForm.id);
-      await loadFormData(currentForm.id);
       onRefresh();
     } catch (err: any) {
       alert(err.message || 'Failed to reset marks');

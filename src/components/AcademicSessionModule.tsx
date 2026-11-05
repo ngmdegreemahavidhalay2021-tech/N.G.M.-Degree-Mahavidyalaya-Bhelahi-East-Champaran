@@ -21,6 +21,7 @@ import {
   createAcademicSession,
   updateAcademicSession,
   deleteAcademicSession,
+  subscribeToAcademicSessions,
 } from '../services/collegeService';
 
 export const AcademicSessionModule: React.FC = () => {
@@ -37,20 +38,20 @@ export const AcademicSessionModule: React.FC = () => {
   const [editName, setEditName] = useState('');
 
   useEffect(() => {
-    loadSessions();
+    setLoading(true);
+    const unsubscribe = subscribeToAcademicSessions(
+      (list) => {
+        setSessions(list || []);
+        setLoading(false);
+      },
+      (err) => {
+        console.warn('Academic sessions real-time error:', err);
+        setErrorMessage('Failed to load academic sessions from Firestore.');
+        setLoading(false);
+      }
+    );
+    return () => unsubscribe();
   }, []);
-
-  const loadSessions = async () => {
-    try {
-      setLoading(true);
-      const list = await getAcademicSessions();
-      setSessions(list || []);
-    } catch (err: any) {
-      setErrorMessage('Failed to load academic sessions from Firestore.');
-    } finally {
-      setLoading(false);
-    }
-  };
 
   const handleAddSession = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -75,7 +76,6 @@ export const AcademicSessionModule: React.FC = () => {
       setSuccessMessage(`Academic session "${clean}" created and saved to Firestore!`);
       setNewSessionName('');
       setShowAddModal(false);
-      await loadSessions();
     } catch (err: any) {
       setErrorMessage(err.message || 'Error creating academic session.');
     } finally {
@@ -86,9 +86,6 @@ export const AcademicSessionModule: React.FC = () => {
   const handleToggleActive = async (session: AcademicSession) => {
     try {
       await updateAcademicSession(session.id, { isActive: !session.isActive });
-      setSessions((prev) =>
-        prev.map((s) => (s.id === session.id ? { ...s, isActive: !s.isActive } : s))
-      );
       setSuccessMessage(
         `Session ${session.sessionName} is now ${!session.isActive ? 'Active' : 'Inactive'}.`
       );
@@ -113,7 +110,6 @@ export const AcademicSessionModule: React.FC = () => {
       await updateAcademicSession(editingSession.id, { sessionName: clean });
       setSuccessMessage(`Session renamed to "${clean}" successfully in Firestore.`);
       setEditingSession(null);
-      await loadSessions();
     } catch (err: any) {
       setErrorMessage('Failed to rename session.');
     } finally {
@@ -137,9 +133,8 @@ export const AcademicSessionModule: React.FC = () => {
     try {
       await deleteAcademicSession(session.id);
       setSuccessMessage(`Session "${session.sessionName}" deleted.`);
-      await loadSessions();
     } catch (err: any) {
-      setErrorMessage('Failed to delete session.');
+      setErrorMessage(err.message || 'Failed to delete session.');
     }
   };
 
@@ -209,10 +204,10 @@ export const AcademicSessionModule: React.FC = () => {
           <h3 className="text-sm font-bold text-slate-300">No Academic Sessions Found</h3>
           <p className="text-xs text-slate-500 mt-1 mb-4">Click below to initialize foundational sessions.</p>
           <button
-            onClick={loadSessions}
+            onClick={() => setShowAddModal(true)}
             className="px-4 py-2 rounded-xl bg-blue-600 text-white text-xs font-semibold"
           >
-            Initialize Sessions
+            Add Academic Session
           </button>
         </div>
       ) : (
