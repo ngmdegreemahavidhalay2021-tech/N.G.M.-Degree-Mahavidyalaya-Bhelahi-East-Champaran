@@ -184,44 +184,66 @@ export default function App() {
 
   // Real-time Firestore synchronization across all screens & tabs (only when in admin portal)
   useEffect(() => {
-    if (publicFormToken) return;
+    if (publicFormToken || !admin) return;
 
     const unsubs: Array<() => void> = [];
 
-    const unsubDepts = subscribeToDepartments((liveDepts) => {
-      setDepartments(liveDepts);
-    });
+    const unsubDepts = subscribeToDepartments(
+      (liveDepts) => {
+        setDepartments(liveDepts);
+      },
+      (err) => {
+        console.warn('Real-time departments subscription notice:', err?.message || err);
+      }
+    );
     unsubs.push(unsubDepts);
 
-    const unsubSubjs = subscribeToSubjects((liveSubjs) => {
-      setSubjects(liveSubjs);
-    });
+    const unsubSubjs = subscribeToSubjects(
+      (liveSubjs) => {
+        setSubjects(liveSubjs);
+      },
+      undefined,
+      (err) => {
+        console.warn('Real-time subjects subscription notice:', err?.message || err);
+      }
+    );
     unsubs.push(unsubSubjs);
 
-    const unsubForms = subscribeToPracticalForms((liveForms) => {
-      setForms(liveForms);
-      getCollegeStats()
-        .then((st) => {
-          if (st) setStats(st);
-        })
-        .catch(() => {});
-    });
+    const unsubForms = subscribeToPracticalForms(
+      (liveForms) => {
+        setForms(liveForms);
+        getCollegeStats()
+          .then((st) => {
+            if (st) setStats(st);
+          })
+          .catch(() => {});
+      },
+      (err) => {
+        console.warn('Real-time practical forms subscription notice:', err?.message || err);
+      }
+    );
     unsubs.push(unsubForms);
 
-    const unsubStudents = subscribeToStudents((liveStudents) => {
-      setStudents(liveStudents);
-      getCollegeStats()
-        .then((st) => {
-          if (st) setStats(st);
-        })
-        .catch(() => {});
-    });
+    const unsubStudents = subscribeToStudents(
+      (liveStudents) => {
+        setStudents(liveStudents);
+        getCollegeStats()
+          .then((st) => {
+            if (st) setStats(st);
+          })
+          .catch(() => {});
+      },
+      undefined,
+      (err) => {
+        console.warn('Real-time students subscription notice:', err?.message || err);
+      }
+    );
     unsubs.push(unsubStudents);
 
     return () => {
       unsubs.forEach((u) => u());
     };
-  }, []);
+  }, [admin, publicFormToken]);
 
   const initSystem = async () => {
     try {

@@ -237,6 +237,7 @@ export const ReportsModule: React.FC<ReportsModuleProps> = ({
               fatherName: String(e.fatherName || '-'),
               subject: cleanSubj,
               paperId: form.id,
+              paperName: form.paperName || form.examName || 'MJ5',
               session: form.session || form.examYear || '2025-29',
               semester: form.semester || 'Semester 2',
               subjectType: (form.subjectType as any) || 'MJC',
