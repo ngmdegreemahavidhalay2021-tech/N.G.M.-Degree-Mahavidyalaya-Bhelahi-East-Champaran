@@ -26,13 +26,11 @@ try {
 }
 
 const firebaseConfig = {
-  projectId: process.env.FIREBASE_PROJECT_ID || process.env.VITE_FIREBASE_PROJECT_ID || process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID || rawConfig?.projectId || 'vast-archive-1dzcr',
-  appId: process.env.FIREBASE_APP_ID || process.env.VITE_FIREBASE_APP_ID || process.env.NEXT_PUBLIC_FIREBASE_APP_ID || rawConfig?.appId || '1:85113631348:web:3b58b4185838c3b9049721',
-  apiKey: process.env.FIREBASE_API_KEY || process.env.VITE_FIREBASE_API_KEY || process.env.NEXT_PUBLIC_FIREBASE_API_KEY || rawConfig?.apiKey || 'AIzaSyA66T63kI2_np7ktpIzeDN729ZwyJ19MOg',
-  authDomain: process.env.FIREBASE_AUTH_DOMAIN || process.env.VITE_FIREBASE_AUTH_DOMAIN || process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN || rawConfig?.authDomain || 'vast-archive-1dzcr.firebaseapp.com',
-  firestoreDatabaseId: process.env.FIREBASE_FIRESTORE_DATABASE_ID || process.env.VITE_FIREBASE_FIRESTORE_DATABASE_ID || process.env.NEXT_PUBLIC_FIREBASE_FIRESTORE_DATABASE_ID || rawConfig?.firestoreDatabaseId || 'ai-studio-bf141177-705a-4793-b2bc-644ebb83d388',
-  storageBucket: process.env.FIREBASE_STORAGE_BUCKET || process.env.VITE_FIREBASE_STORAGE_BUCKET || process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET || rawConfig?.storageBucket || 'vast-archive-1dzcr.firebasestorage.app',
-  messagingSenderId: process.env.FIREBASE_MESSAGING_SENDER_ID || process.env.VITE_FIREBASE_MESSAGING_SENDER_ID || process.env.NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID || rawConfig?.messagingSenderId || '85113631348',
+  projectId: process.env.FIREBASE_PROJECT_ID || process.env.VITE_FIREBASE_PROJECT_ID || rawConfig.projectId || 'vast-archive-1dzcr',
+  appId: process.env.FIREBASE_APP_ID || process.env.VITE_FIREBASE_APP_ID || rawConfig.appId,
+  apiKey: process.env.FIREBASE_API_KEY || process.env.VITE_FIREBASE_API_KEY || rawConfig.apiKey,
+  authDomain: process.env.FIREBASE_AUTH_DOMAIN || process.env.VITE_FIREBASE_AUTH_DOMAIN || rawConfig.authDomain,
+  firestoreDatabaseId: process.env.FIREBASE_FIRESTORE_DATABASE_ID || process.env.VITE_FIREBASE_FIRESTORE_DATABASE_ID || rawConfig.firestoreDatabaseId || 'ai-studio-bf141177-705a-4793-b2bc-644ebb83d388',
 };
 
 // Initialize server-side Firestore instance with target databaseId
@@ -141,7 +139,8 @@ export async function getBootstrapStatusServer(): Promise<ServerBootstrapStatus>
       syncLocalFile(status);
       return status;
     }
-  } catch (err: any) {
+  } catch (err) {
+    console.warn('[FirestoreServer] Firestore status check warning:', (err as Error).message);
     // Fall back to memory cache or local file backup if Firestore is momentarily unreachable
     if (memoryCache && memoryCache.isBootstrapped) {
       return memoryCache;
@@ -149,9 +148,6 @@ export async function getBootstrapStatusServer(): Promise<ServerBootstrapStatus>
     const local = readLocalFile();
     if (local && local.isBootstrapped) {
       return local;
-    }
-    if (!err?.message?.includes('offline')) {
-      console.warn('[FirestoreServer] Firestore status check notice:', err?.message || err);
     }
   }
 

@@ -43,13 +43,12 @@ export const ExportCenterModule: React.FC<ExportCenterModuleProps> = ({
   collegeName,
 }) => {
   // Filter States
-  const [selectedSession, setSelectedSession] = useState('ALL');
-  const [selectedSemester, setSelectedSemester] = useState('ALL');
   const [selectedDeptId, setSelectedDeptId] = useState('ALL');
-  const [selectedPracticalSubject, setSelectedPracticalSubject] = useState('ALL');
-  const [selectedIncharge, setSelectedIncharge] = useState('ALL');
-  const [selectedSubjectType, setSelectedSubjectType] = useState('ALL');
+  const [selectedSubjId, setSelectedSubjId] = useState('ALL');
   const [selectedFormId, setSelectedFormId] = useState('ALL');
+  const [selectedCourse, setSelectedCourse] = useState('ALL');
+  const [selectedSemester, setSelectedSemester] = useState('ALL');
+  const [selectedYear, setSelectedYear] = useState('ALL');
   const [marksStatus, setMarksStatus] = useState<'ALL' | 'ENTERED' | 'PENDING'>('ALL');
   const [searchQuery, setSearchQuery] = useState('');
 
@@ -89,63 +88,31 @@ export const ExportCenterModule: React.FC<ExportCenterModuleProps> = ({
     }
   };
 
-  // Base records across all forms without filters
-  const allGeneratedRecords = React.useMemo(() => {
-    return generateExportRecords(
-      forms,
-      departments,
-      subjects,
-      enrollmentsMap,
-      marksMap,
-      {}
-    );
-  }, [forms, departments, subjects, enrollmentsMap, marksMap]);
-
-  // Extract distinct filter options
-  const sessions = Array.from(new Set(allGeneratedRecords.map((r) => r.session).filter(Boolean)));
-  const semesters = Array.from(new Set(allGeneratedRecords.map((r) => r.semester).filter(Boolean)));
-  const practicalSubjectOptions = Array.from(new Set(allGeneratedRecords.map((r) => r.practicalSubject).filter(Boolean))).sort();
-  const inchargeOptions = Array.from(new Set(allGeneratedRecords.map((r) => r.inchargeName).filter(Boolean))).sort();
-  const subjectTypeOptions = Array.from(new Set(allGeneratedRecords.map((r) => r.subjectType).filter(Boolean))).sort();
-
-  // Filtered dataset for export and preview
-  const filteredRecords = React.useMemo(() => {
-    return generateExportRecords(
-      forms,
-      departments,
-      subjects,
-      enrollmentsMap,
-      marksMap,
-      {
-        session: selectedSession,
-        semester: selectedSemester,
-        departmentId: selectedDeptId,
-        practicalSubject: selectedPracticalSubject,
-        inchargeName: selectedIncharge,
-        subjectType: selectedSubjectType,
-        practicalFormId: selectedFormId,
-        marksStatus,
-        searchQuery,
-      }
-    );
-  }, [
+  // Generate filtered dataset
+  const filteredRecords = generateExportRecords(
     forms,
     departments,
     subjects,
     enrollmentsMap,
     marksMap,
-    selectedSession,
-    selectedSemester,
-    selectedDeptId,
-    selectedPracticalSubject,
-    selectedIncharge,
-    selectedSubjectType,
-    selectedFormId,
-    marksStatus,
-    searchQuery,
-  ]);
+    {
+      departmentId: selectedDeptId,
+      subjectId: selectedSubjId,
+      practicalFormId: selectedFormId,
+      course: selectedCourse,
+      semester: selectedSemester,
+      examYear: selectedYear,
+      marksStatus,
+      searchQuery,
+    }
+  );
 
-  // Master Excel Download (15 Columns)
+  // Distinct values for filter drop-downs
+  const courses = Array.from(new Set(forms.map((f) => f.course).filter(Boolean)));
+  const semesters = Array.from(new Set(forms.map((f) => f.semester).filter(Boolean)));
+  const examYears = Array.from(new Set(forms.map((f) => f.examYear).filter(Boolean)));
+
+  // Master Excel Download
   const handleDownloadMasterExcel = () => {
     if (filteredRecords.length === 0) {
       alert('No records match the selected filters.');
@@ -212,17 +179,68 @@ export const ExportCenterModule: React.FC<ExportCenterModuleProps> = ({
         </h3>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3 text-xs">
-          {/* Session Filter */}
+          {/* Department Filter */}
           <div>
-            <label className="block text-slate-400 mb-1 font-semibold">Academic Session</label>
+            <label className="block text-slate-400 mb-1 font-semibold">Department</label>
             <select
-              value={selectedSession}
-              onChange={(e) => setSelectedSession(e.target.value)}
+              value={selectedDeptId}
+              onChange={(e) => setSelectedDeptId(e.target.value)}
               className="w-full px-2.5 py-1.5 bg-slate-950 border border-slate-700 rounded-lg text-slate-100 focus:outline-none focus:border-blue-500"
             >
-              <option value="ALL">All Academic Sessions</option>
-              {sessions.map((s) => (
-                <option key={s} value={s}>{s}</option>
+              <option value="ALL">All Departments</option>
+              {departments.map((d) => (
+                <option key={d.id} value={d.id}>
+                  {d.name} ({d.code})
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {/* Subject Filter */}
+          <div>
+            <label className="block text-slate-400 mb-1 font-semibold">Subject</label>
+            <select
+              value={selectedSubjId}
+              onChange={(e) => setSelectedSubjId(e.target.value)}
+              className="w-full px-2.5 py-1.5 bg-slate-950 border border-slate-700 rounded-lg text-slate-100 focus:outline-none focus:border-blue-500"
+            >
+              <option value="ALL">All Subjects</option>
+              {subjects.map((s) => (
+                <option key={s.id} value={s.id}>
+                  {s.code} — {s.name}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {/* Practical Form Filter */}
+          <div>
+            <label className="block text-slate-400 mb-1 font-semibold">Practical Form</label>
+            <select
+              value={selectedFormId}
+              onChange={(e) => setSelectedFormId(e.target.value)}
+              className="w-full px-2.5 py-1.5 bg-slate-950 border border-slate-700 rounded-lg text-slate-100 focus:outline-none focus:border-blue-500"
+            >
+              <option value="ALL">All Examination Forms</option>
+              {forms.map((f) => (
+                <option key={f.id} value={f.id}>
+                  {f.subjectCode}: {f.title}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {/* Course Filter */}
+          <div>
+            <label className="block text-slate-400 mb-1 font-semibold">Course / Degree</label>
+            <select
+              value={selectedCourse}
+              onChange={(e) => setSelectedCourse(e.target.value)}
+              className="w-full px-2.5 py-1.5 bg-slate-950 border border-slate-700 rounded-lg text-slate-100 focus:outline-none focus:border-blue-500"
+            >
+              <option value="ALL">All Courses</option>
+              {courses.map((c) => (
+                <option key={c} value={c}>{c}</option>
               ))}
             </select>
           </div>
@@ -242,83 +260,17 @@ export const ExportCenterModule: React.FC<ExportCenterModuleProps> = ({
             </select>
           </div>
 
-          {/* Department Filter */}
+          {/* Academic Year Filter */}
           <div>
-            <label className="block text-slate-400 mb-1 font-semibold">Department</label>
+            <label className="block text-slate-400 mb-1 font-semibold">Academic Year</label>
             <select
-              value={selectedDeptId}
-              onChange={(e) => setSelectedDeptId(e.target.value)}
+              value={selectedYear}
+              onChange={(e) => setSelectedYear(e.target.value)}
               className="w-full px-2.5 py-1.5 bg-slate-950 border border-slate-700 rounded-lg text-slate-100 focus:outline-none focus:border-blue-500"
             >
-              <option value="ALL">All Departments</option>
-              {departments.map((d) => (
-                <option key={d.id} value={d.id}>
-                  {d.name} ({d.code})
-                </option>
-              ))}
-            </select>
-          </div>
-
-          {/* Practical Subject Filter */}
-          <div>
-            <label className="block text-slate-400 mb-1 font-semibold">Practical Subject</label>
-            <select
-              value={selectedPracticalSubject}
-              onChange={(e) => setSelectedPracticalSubject(e.target.value)}
-              className="w-full px-2.5 py-1.5 bg-slate-950 border border-slate-700 rounded-lg text-slate-100 focus:outline-none focus:border-blue-500"
-            >
-              <option value="ALL">All Practical Subjects</option>
-              {practicalSubjectOptions.map((subj) => (
-                <option key={subj} value={subj}>
-                  {subj}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          {/* Incharge Name Filter */}
-          <div>
-            <label className="block text-slate-400 mb-1 font-semibold">Incharge / Examiner</label>
-            <select
-              value={selectedIncharge}
-              onChange={(e) => setSelectedIncharge(e.target.value)}
-              className="w-full px-2.5 py-1.5 bg-slate-950 border border-slate-700 rounded-lg text-slate-100 focus:outline-none focus:border-blue-500"
-            >
-              <option value="ALL">All Incharges</option>
-              {inchargeOptions.map((inc) => (
-                <option key={inc} value={inc}>{inc}</option>
-              ))}
-            </select>
-          </div>
-
-          {/* Subject Type Filter */}
-          <div>
-            <label className="block text-slate-400 mb-1 font-semibold">Subject Type</label>
-            <select
-              value={selectedSubjectType}
-              onChange={(e) => setSelectedSubjectType(e.target.value)}
-              className="w-full px-2.5 py-1.5 bg-slate-950 border border-slate-700 rounded-lg text-slate-100 focus:outline-none focus:border-blue-500"
-            >
-              <option value="ALL">All Subject Types</option>
-              {subjectTypeOptions.map((st) => (
-                <option key={st} value={st}>{st}</option>
-              ))}
-            </select>
-          </div>
-
-          {/* Practical Form Filter */}
-          <div>
-            <label className="block text-slate-400 mb-1 font-semibold">Practical Examination Form</label>
-            <select
-              value={selectedFormId}
-              onChange={(e) => setSelectedFormId(e.target.value)}
-              className="w-full px-2.5 py-1.5 bg-slate-950 border border-slate-700 rounded-lg text-slate-100 focus:outline-none focus:border-blue-500"
-            >
-              <option value="ALL">All Examination Forms</option>
-              {forms.map((f) => (
-                <option key={f.id} value={f.id}>
-                  {f.subjectCode}: {f.title} ({f.inchargeName || 'Incharge'})
-                </option>
+              <option value="ALL">All Academic Years</option>
+              {examYears.map((y) => (
+                <option key={y} value={y}>{y}</option>
               ))}
             </select>
           </div>
@@ -331,22 +283,22 @@ export const ExportCenterModule: React.FC<ExportCenterModuleProps> = ({
               onChange={(e) => setMarksStatus(e.target.value as any)}
               className="w-full px-2.5 py-1.5 bg-slate-950 border border-slate-700 rounded-lg text-slate-100 focus:outline-none focus:border-blue-500"
             >
-              <option value="ALL">All Statuses</option>
-              <option value="ENTERED">Only Evaluated / Marks Entered</option>
+              <option value="ALL">All Students</option>
+              <option value="ENTERED">Only Marks Entered</option>
               <option value="PENDING">Only Pending Marks</option>
             </select>
           </div>
 
           {/* Roll No / Name Search */}
-          <div className="sm:col-span-2 md:col-span-4">
-            <label className="block text-slate-400 mb-1 font-semibold">Search Candidate (Roll Number or Name)</label>
+          <div>
+            <label className="block text-slate-400 mb-1 font-semibold">Search Candidate</label>
             <div className="relative">
               <Search className="w-3.5 h-3.5 absolute left-2.5 top-2.5 text-slate-500" />
               <input
                 type="text"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Type Roll No or Student Name..."
+                placeholder="Roll No or Name..."
                 className="w-full pl-8 pr-2.5 py-1.5 bg-slate-950 border border-slate-700 rounded-lg text-slate-100 focus:outline-none focus:border-blue-500"
               />
             </div>
@@ -356,23 +308,23 @@ export const ExportCenterModule: React.FC<ExportCenterModuleProps> = ({
         {/* Export Buttons Actions */}
         <div className="pt-4 border-t border-slate-800 flex flex-wrap items-center justify-between gap-3">
           <div className="text-xs text-slate-400">
-            Filtered dataset: <strong className="text-emerald-400 font-mono font-bold">{filteredRecords.length} student records</strong> ready for 15-column export.
+            Selected dataset includes <strong className="text-slate-200">{filteredRecords.length} student records</strong> across filtered departments and subjects.
           </div>
 
           <div className="flex flex-wrap items-center gap-2.5">
             <button
               onClick={handleDownloadMasterExcel}
               disabled={downloading || filteredRecords.length === 0}
-              className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-semibold bg-emerald-600 hover:bg-emerald-500 text-white shadow-lg shadow-emerald-600/25 disabled:opacity-50 transition-all cursor-pointer"
+              className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-semibold bg-emerald-600 hover:bg-emerald-500 text-white shadow-lg shadow-emerald-600/25 disabled:opacity-50 transition-all"
             >
               <FileSpreadsheet className="w-4 h-4" />
-              <span>Download Master Excel (15 Columns)</span>
+              <span>Download Master Excel (.xlsx)</span>
             </button>
 
             <button
               onClick={handleDownloadZipArchive}
               disabled={downloading || filteredRecords.length === 0}
-              className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-semibold bg-indigo-600 hover:bg-indigo-500 text-white shadow-lg shadow-indigo-600/25 disabled:opacity-50 transition-all cursor-pointer"
+              className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-semibold bg-indigo-600 hover:bg-indigo-500 text-white shadow-lg shadow-indigo-600/25 disabled:opacity-50 transition-all"
             >
               <Archive className="w-4 h-4" />
               <span>Download Department ZIP Archive</span>
@@ -381,7 +333,7 @@ export const ExportCenterModule: React.FC<ExportCenterModuleProps> = ({
             <button
               onClick={handlePrint}
               disabled={filteredRecords.length === 0}
-              className="inline-flex items-center gap-2 px-3.5 py-2.5 rounded-xl text-xs font-semibold bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 transition-all cursor-pointer"
+              className="inline-flex items-center gap-2 px-3.5 py-2.5 rounded-xl text-xs font-semibold bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 transition-all"
             >
               <Printer className="w-4 h-4" />
               <span>Print Preview</span>
@@ -390,75 +342,52 @@ export const ExportCenterModule: React.FC<ExportCenterModuleProps> = ({
         </div>
       </div>
 
-      {/* Dataset Preview Table — EXACT 15 COLUMNS */}
+      {/* Dataset Preview Table */}
       <div className="bg-slate-900 border border-slate-800 rounded-2xl shadow-xl overflow-hidden">
         <div className="p-4 bg-slate-950 border-b border-slate-800 flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <span className="w-2 h-2 rounded-full bg-emerald-400" />
-            <h4 className="text-xs font-bold uppercase tracking-wider text-slate-200">
-              Official 15-Column Export Preview
-            </h4>
-          </div>
-          <span className="text-[11px] font-mono text-slate-400">
-            Showing {Math.min(50, filteredRecords.length)} of {filteredRecords.length} records
+          <h4 className="text-xs font-bold uppercase tracking-wider text-slate-300">
+            Export Dataset Preview (First 30 Records)
+          </h4>
+          <span className="text-[11px] font-mono text-slate-500">
+            Showing {Math.min(30, filteredRecords.length)} of {filteredRecords.length}
           </span>
         </div>
 
-        <div className="overflow-x-auto max-h-[460px]">
-          <table className="w-full text-left text-xs whitespace-nowrap">
-            <thead className="bg-slate-950 text-slate-400 uppercase text-[10px] sticky top-0 border-b border-slate-800 z-10">
+        <div className="overflow-x-auto max-h-96">
+          <table className="w-full text-left text-xs">
+            <thead className="bg-slate-950 text-slate-400 uppercase text-[10px] sticky top-0 border-b border-slate-800">
               <tr>
-                <th className="py-2.5 px-3 text-center">1. SN.</th>
-                <th className="py-2.5 px-3">2. Session</th>
-                <th className="py-2.5 px-3">3. Semester</th>
-                <th className="py-2.5 px-3">4. Department</th>
-                <th className="py-2.5 px-3">5. Incharge Name</th>
-                <th className="py-2.5 px-3">6. Practical Subject</th>
-                <th className="py-2.5 px-3 text-center">7. Subject Type</th>
-                <th className="py-2.5 px-3 text-center">8. Paper</th>
-                <th className="py-2.5 px-3">9. Roll Number</th>
-                <th className="py-2.5 px-3">10. Student Name</th>
-                <th className="py-2.5 px-3">11. Father's Name</th>
-                <th className="py-2.5 px-3 text-center">12. Max Marks</th>
-                <th className="py-2.5 px-3 text-center">13. Min Marks</th>
-                <th className="py-2.5 px-3 text-center">14. Obtained Marks</th>
-                <th className="py-2.5 px-3 text-center">15. Marks Status</th>
+                <th className="py-2.5 px-3">Roll No</th>
+                <th className="py-2.5 px-3">Candidate Name</th>
+                <th className="py-2.5 px-3">Department</th>
+                <th className="py-2.5 px-3">Subject</th>
+                <th className="py-2.5 px-3 text-center">Max Marks</th>
+                <th className="py-2.5 px-3 text-center">Marks Obtained</th>
+                <th className="py-2.5 px-3 text-center">Status</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-800/60 font-sans">
-              {filteredRecords.slice(0, 50).map((r, idx) => (
+              {filteredRecords.slice(0, 30).map((r, idx) => (
                 <tr key={idx} className="hover:bg-slate-800/40">
-                  <td className="py-2 px-3 text-center font-mono text-slate-500">{idx + 1}</td>
-                  <td className="py-2 px-3 font-mono text-slate-300">{r.session}</td>
-                  <td className="py-2 px-3 text-slate-300">{r.semester}</td>
-                  <td className="py-2 px-3 text-slate-300">{r.departmentName}</td>
-                  <td className="py-2 px-3 text-slate-200 font-semibold">{r.inchargeName}</td>
-                  <td className="py-2 px-3">
-                    <span className="font-bold text-blue-400 bg-blue-500/10 px-2 py-0.5 rounded border border-blue-500/20">
-                      {r.practicalSubject}
-                    </span>
-                  </td>
-                  <td className="py-2 px-3 text-center font-mono text-slate-400">{r.subjectType}</td>
-                  <td className="py-2 px-3 text-center font-mono text-slate-300">{r.paper}</td>
-                  <td className="py-2 px-3 font-mono font-bold text-slate-100">{r.rollNumber}</td>
-                  <td className="py-2 px-3 text-slate-100 font-medium">{r.studentName}</td>
-                  <td className="py-2 px-3 text-slate-400">{r.fatherName}</td>
+                  <td className="py-2 px-3 font-mono font-bold text-slate-200">{r.rollNumber}</td>
+                  <td className="py-2 px-3 text-slate-200 font-medium">{r.studentName}</td>
+                  <td className="py-2 px-3 text-slate-400">{r.departmentName}</td>
+                  <td className="py-2 px-3 text-slate-300">{r.subjectCode}: {r.subjectName}</td>
                   <td className="py-2 px-3 text-center font-mono text-slate-400">{r.maxMarks}</td>
-                  <td className="py-2 px-3 text-center font-mono text-slate-400">{r.minPassingMarks}</td>
-                  <td className="py-2 px-3 text-center font-mono font-bold text-emerald-400 text-sm">
+                  <td className="py-2 px-3 text-center font-mono font-bold text-blue-400">
                     {r.marksObtained}
                   </td>
                   <td className="py-2 px-3 text-center">
                     <span
                       className={`text-[10px] font-bold px-2 py-0.5 rounded ${
-                        r.marksStatus === 'PRESENT'
+                        r.status === 'PRESENT'
                           ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
-                          : r.marksStatus === 'ABSENT'
+                          : r.status === 'ABSENT'
                           ? 'bg-rose-500/10 text-rose-400 border border-rose-500/20'
                           : 'bg-amber-500/10 text-amber-400 border border-amber-500/20'
                       }`}
                     >
-                      {r.marksStatus}
+                      {r.status}
                     </span>
                   </td>
                 </tr>

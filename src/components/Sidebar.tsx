@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   LayoutDashboard,
   Calendar,
@@ -48,7 +48,7 @@ interface SidebarProps {
   collegeName: string;
   adminUsername?: string;
   onLogout: () => void;
-  onOpenDeploymentGuide?: () => void;
+  onOpenDeploymentGuide: () => void;
   onSeedDemoData: () => void;
 }
 
@@ -141,11 +141,21 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onOpenDeploymentGuide,
   onSeedDemoData,
 }) => {
-  // Track open state of each group. Default all to collapsed on initial load.
-  const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({});
+  // Track open state of each group. Default all to true so user sees the organized structure.
+  const [collapsedGroups, setCollapsedGroups] = useState<Record<string, boolean>>({});
+
+  // Automatically ensure the group containing the active module is expanded
+  useEffect(() => {
+    const parentGroup = MENU_GROUPS.find((g) =>
+      g.items.some((item) => item.key === activeModule)
+    );
+    if (parentGroup && collapsedGroups[parentGroup.id]) {
+      setCollapsedGroups((prev) => ({ ...prev, [parentGroup.id]: false }));
+    }
+  }, [activeModule]);
 
   const toggleGroup = (groupId: string) => {
-    setExpandedGroups((prev) => ({
+    setCollapsedGroups((prev) => ({
       ...prev,
       [groupId]: !prev[groupId],
     }));
@@ -175,7 +185,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       {/* Grouped Navigation List */}
       <nav className="flex-1 p-3 space-y-3 overflow-y-auto custom-scrollbar">
         {MENU_GROUPS.map((group) => {
-          const isExpanded = !!expandedGroups[group.id];
+          const isCollapsed = !!collapsedGroups[group.id];
           const hasActiveChild = group.items.some((i) => i.key === activeModule);
 
           return (
@@ -193,15 +203,15 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 <div className="flex items-center gap-2 truncate">
                   <span>{group.title}</span>
                 </div>
-                {isExpanded ? (
-                  <ChevronDown className="w-3.5 h-3.5 shrink-0 opacity-60" />
-                ) : (
+                {isCollapsed ? (
                   <ChevronRight className="w-3.5 h-3.5 shrink-0 opacity-60" />
+                ) : (
+                  <ChevronDown className="w-3.5 h-3.5 shrink-0 opacity-60" />
                 )}
               </button>
 
               {/* Group Items */}
-              {isExpanded && (
+              {!isCollapsed && (
                 <div className="space-y-0.5 pl-1">
                   {group.items.map((item) => {
                     const Icon = item.icon;
@@ -243,6 +253,14 @@ export const Sidebar: React.FC<SidebarProps> = ({
           <div className="px-2.5 py-1 text-[10px] font-bold text-slate-500 uppercase tracking-wider">
             Quick Actions
           </div>
+
+          <button
+            onClick={onOpenDeploymentGuide}
+            className="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-semibold text-emerald-400 hover:bg-emerald-500/10 transition-colors text-left"
+          >
+            <BookOpen className="w-4 h-4 text-emerald-400 shrink-0" />
+            <span>Vercel Deploy Guide</span>
+          </button>
 
           <button
             onClick={onSeedDemoData}
