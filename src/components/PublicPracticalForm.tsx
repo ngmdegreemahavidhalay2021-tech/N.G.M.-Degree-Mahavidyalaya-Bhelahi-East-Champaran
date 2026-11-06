@@ -17,9 +17,10 @@ import {
   RotateCcw,
   BookOpen,
   Layers,
-  ArrowRight,
   ShieldCheck,
   RefreshCw,
+  ArrowUpDown,
+  Sparkles,
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import {
@@ -71,6 +72,28 @@ interface ExcelImportRowError {
   reason: string;
 }
 
+// Highlight matched text in search results
+const HighlightedText: React.FC<{ text: string; query: string }> = ({ text, query }) => {
+  if (!query || !query.trim()) return <>{text}</>;
+  const trimmed = query.trim();
+  const escaped = trimmed.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const regex = new RegExp(`(${escaped})`, 'gi');
+  const parts = text.split(regex);
+  return (
+    <>
+      {parts.map((part, i) =>
+        part.toLowerCase() === trimmed.toLowerCase() ? (
+          <mark key={i} className="bg-amber-200 text-amber-950 font-bold px-0.5 rounded-xs">
+            {part}
+          </mark>
+        ) : (
+          part
+        )
+      )}
+    </>
+  );
+};
+
 export const PublicPracticalForm: React.FC<PublicPracticalFormProps> = ({
   token,
   collegeName = 'NGM Degree Mahavidyalaya',
@@ -102,6 +125,16 @@ export const PublicPracticalForm: React.FC<PublicPracticalFormProps> = ({
   // Examiner name & table search
   const [inchargeDisplayName, setInchargeDisplayName] = useState('');
   const [tableSearch, setTableSearch] = useState('');
+
+  // 3-Step Sorting Mode: roll_asc -> pending_first -> promoted_first -> roll_asc
+  const [sortMode, setSortMode] = useState<'roll_asc' | 'pending_first' | 'promoted_first'>('roll_asc');
+  const handleCycleSortMode = () => {
+    setSortMode((prev) => {
+      if (prev === 'roll_asc') return 'pending_first';
+      if (prev === 'pending_first') return 'promoted_first';
+      return 'roll_asc';
+    });
+  };
 
   // Final submission state
   const [submitting, setSubmitting] = useState(false);
@@ -930,11 +963,118 @@ export const PublicPracticalForm: React.FC<PublicPracticalFormProps> = ({
     else pendingCount++;
   });
 
-  const filteredCandidates = candidates.filter(
-    (c) =>
-      c.rollNumber.toLowerCase().includes(tableSearch.toLowerCase()) ||
-      c.studentName.toLowerCase().includes(tableSearch.toLowerCase())
-  );
+  // Categorize students: First 2 numeric digits of roll number
+  // Highest prefix = Regular, lower prefixes = Promoted, non-numeric/missing = Unclassified
+  const candidateCategories = React.useMemo(() => {
+    const prefixMap = new Map<string, number>();
+    const validPrefixes: number[] = [];
+
+    candidates.forEach((c) => {
+      const match = c.rollNumber.trim().match(/^(\d{2})/);
+      if (match) {
+        const num = parseInt(match[1], 10);
+        prefixMap.set(c.studentId, num);
+        validPrefixes.push(num);
+      }
+    });
+
+    const maxPrefix = validPrefixes.length > 0 ? Math.max(...validPrefixes) : null;
+    const result = new Map<string, 'regular' | 'promoted' | 'unclassified'>();
+
+    candidates.forEach((c) => {
+      const p = prefixMap.get(c.studentId);
+      if (p !== undefined && maxPrefix !== null) {
+        if (p === maxPrefix) {
+          result.set(c.studentId, 'regular');
+        } else if (p < maxPrefix) {
+          result.set(c.studentId, 'promoted');
+        } else {
+          result.set(c.studentId, 'regular');
+        }
+      } else {
+        result.set(c.studentId, 'unclassified');
+      }
+    });
+
+    return result;
+  }, [candidates]);
+
+  // Global live search across other allotted subjects for this Incharge
+  const crossSubjectMatches = React.useMemo(() => {
+    const q = tableSearch.trim().toLowerCase();
+    if (!q) return [];
+
+    const cleanActive = activeSubject.trim().toUpperCase();
+    const matches: Array<{
+      subjectName: string;
+      studentName: string;
+      rollNumber: string;
+    }> = [];
+
+    allEnrollments.forEach((e) => {
+      const subj = (e.subject || practicalForm?.subjectName || '').trim().toUpperCase();
+      if (subj && subj !== cleanActive) {
+        if (
+          e.rollNumber.toLowerCase().includes(q) ||
+          e.studentName.toLowerCase().includes(q)
+        ) {
+          matches.push({
+            subjectName: subj,
+            studentName: e.studentName,
+            rollNumber: e.rollNumber,
+          });
+        }
+      }
+    });
+
+    return matches;
+  }, [tableSearch, allEnrollments, activeSubject, practicalForm]);
+
+  // Sorted and Filtered Candidates for the Active Subject
+  const filteredCandidates = React.useMemo(() => {
+    const query = tableSearch.trim().toLowerCase();
+    let list = candidates.filter((c) => {
+      if (!query) return true;
+      return (
+        c.rollNumber.toLowerCase().includes(query) ||
+        c.studentName.toLowerCase().includes(query)
+      );
+    });
+
+    return [...list].sort((a, b) => {
+      if (sortMode === 'pending_first') {
+        const inpA = inputMap[a.studentId];
+        const inpB = inputMap[b.studentId];
+        const isPendingA = !inpA || (inpA.isPresent && (inpA.marks === '' || inpA.marks === null || inpA.marks === undefined));
+        const isPendingB = !inpB || (inpB.isPresent && (inpB.marks === '' || inpB.marks === null || inpB.marks === undefined));
+
+        if (isPendingA && !isPendingB) return -1;
+        if (!isPendingA && isPendingB) return 1;
+
+        return a.rollNumber.localeCompare(b.rollNumber, undefined, { numeric: true, sensitivity: 'base' });
+      }
+
+      if (sortMode === 'promoted_first') {
+        const catA = candidateCategories.get(a.studentId) || 'unclassified';
+        const catB = candidateCategories.get(b.studentId) || 'unclassified';
+
+        const weight: Record<'promoted' | 'regular' | 'unclassified', number> = {
+          promoted: 1,
+          regular: 2,
+          unclassified: 3,
+        };
+
+        if (weight[catA] !== weight[catB]) {
+          return weight[catA] - weight[catB];
+        }
+
+        return a.rollNumber.localeCompare(b.rollNumber, undefined, { numeric: true, sensitivity: 'base' });
+      }
+
+      // Default 'roll_asc': Natural ascending roll number sort
+      return a.rollNumber.localeCompare(b.rollNumber, undefined, { numeric: true, sensitivity: 'base' });
+    });
+  }, [candidates, tableSearch, sortMode, inputMap, candidateCategories]);
 
   return (
     <div className="min-h-screen bg-slate-50 text-slate-800 antialiased font-sans pb-16">
@@ -1129,15 +1269,58 @@ export const PublicPracticalForm: React.FC<PublicPracticalFormProps> = ({
         {/* INCHARGE MARKS ENTRY TABLE (EXACT 5 COLUMNS) */}
         <div className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden p-5 space-y-4">
           <div className="flex flex-col sm:flex-row items-center justify-between gap-3">
-            <div className="relative w-full sm:w-80">
-              <Search className="w-4 h-4 absolute left-3 top-2.5 text-slate-400" />
-              <input
-                type="text"
-                value={tableSearch}
-                onChange={(e) => setTableSearch(e.target.value)}
-                placeholder={`Search in ${activeSubject} by roll or student name...`}
-                className="w-full pl-9 pr-3 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-800 focus:outline-none focus:border-blue-500"
-              />
+            <div className="flex flex-wrap items-center gap-2.5 w-full sm:w-auto">
+              {/* Global Real-Time Search Input with Clear Button */}
+              <div className="relative flex-1 sm:w-80">
+                <Search className="w-4 h-4 absolute left-3 top-2.5 text-slate-400" />
+                <input
+                  type="text"
+                  value={tableSearch}
+                  onChange={(e) => setTableSearch(e.target.value)}
+                  placeholder={`Search by Roll No. or Student Name...`}
+                  className="w-full pl-9 pr-8 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-800 focus:outline-none focus:border-blue-500 focus:bg-white transition"
+                />
+                {tableSearch && (
+                  <button
+                    type="button"
+                    onClick={() => setTableSearch('')}
+                    className="absolute right-2.5 top-2.5 text-slate-400 hover:text-slate-600 cursor-pointer"
+                    title="Clear search"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                )}
+              </div>
+
+              {/* Three-Step Sorting System Button */}
+              <button
+                type="button"
+                onClick={handleCycleSortMode}
+                className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold border transition-all cursor-pointer shadow-xs bg-white text-slate-700 border-slate-300 hover:bg-slate-50 hover:border-slate-400 shrink-0"
+                title="Click to cycle sorting modes: Roll No ↑ -> Pending First -> Promoted First"
+              >
+                {sortMode === 'roll_asc' && (
+                  <>
+                    <ArrowUpDown className="w-3.5 h-3.5 text-blue-600 shrink-0" />
+                    <span>Sort: Roll No. ↑</span>
+                    <span className="px-1.5 py-0.2 rounded text-[10px] font-mono bg-blue-50 text-blue-700 border border-blue-200">1/3</span>
+                  </>
+                )}
+                {sortMode === 'pending_first' && (
+                  <>
+                    <Clock className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+                    <span>Sort: Pending First</span>
+                    <span className="px-1.5 py-0.2 rounded text-[10px] font-mono bg-amber-50 text-amber-700 border border-amber-200">2/3</span>
+                  </>
+                )}
+                {sortMode === 'promoted_first' && (
+                  <>
+                    <Sparkles className="w-3.5 h-3.5 text-purple-600 shrink-0" />
+                    <span>Sort: Promoted First</span>
+                    <span className="px-1.5 py-0.2 rounded text-[10px] font-mono bg-purple-50 text-purple-700 border border-purple-200">3/3</span>
+                  </>
+                )}
+              </button>
             </div>
 
             {!isLocked && (
@@ -1166,13 +1349,37 @@ export const PublicPracticalForm: React.FC<PublicPracticalFormProps> = ({
             )}
           </div>
 
+          {/* Cross-Subject Global Match Notification */}
+          {crossSubjectMatches.length > 0 && (
+            <div className="p-3 bg-indigo-50 border border-indigo-200 rounded-xl text-xs flex flex-wrap items-center justify-between gap-2 text-indigo-900 shadow-xs">
+              <div className="flex items-center gap-2">
+                <Search className="w-4 h-4 text-indigo-600 shrink-0" />
+                <span>
+                  Found <strong>{crossSubjectMatches.length}</strong> matching candidate(s) in other assigned subject(s):
+                </span>
+              </div>
+              <div className="flex flex-wrap gap-1.5">
+                {Array.from(new Set(crossSubjectMatches.map((m) => m.subjectName))).map((sName) => (
+                  <button
+                    key={sName}
+                    type="button"
+                    onClick={() => handleSwitchSubject(sName)}
+                    className="px-2.5 py-1 rounded-lg text-xs font-bold bg-indigo-600 text-white hover:bg-indigo-700 transition cursor-pointer shadow-xs"
+                  >
+                    Switch to {sName}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
           {/* SIMPLIFIED 5-COLUMN TABLE */}
           <div className="overflow-x-auto border border-slate-200 rounded-xl">
             <table className="w-full text-left text-xs">
               <thead className="bg-slate-100/80 border-b border-slate-200 text-slate-600 font-bold uppercase text-[11px] tracking-wider">
                 <tr>
                   <th className="py-3 px-3 w-16 text-center">1. SN.</th>
-                  <th className="py-3 px-4 w-36">2. ROLL NO.</th>
+                  <th className="py-3 px-4 w-44">2. ROLL NO.</th>
                   <th className="py-3 px-4">3. NAME OF STUDENT</th>
                   <th className="py-3 px-4 w-40 text-center">4. MARKS</th>
                   <th className="py-3 px-4 w-32 text-center">5. STATUS</th>
@@ -1190,6 +1397,7 @@ export const PublicPracticalForm: React.FC<PublicPracticalFormProps> = ({
                     const inp = inputMap[c.studentId] || { marks: '', isPresent: true, remarks: '' };
                     const isPresent = inp.isPresent;
                     const hasMark = isPresent && inp.marks !== '' && !isNaN(Number(inp.marks));
+                    const category = candidateCategories.get(c.studentId) || 'unclassified';
 
                     return (
                       <tr
@@ -1201,15 +1409,34 @@ export const PublicPracticalForm: React.FC<PublicPracticalFormProps> = ({
                           {idx + 1}
                         </td>
 
-                        {/* 2. ROLL NO. */}
+                        {/* 2. ROLL NO. (with Classification Badge) */}
                         <td className="py-3 px-4 font-mono font-bold text-slate-900">
-                          {c.rollNumber}
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <span>
+                              <HighlightedText text={c.rollNumber} query={tableSearch} />
+                            </span>
+                            {category === 'promoted' && (
+                              <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-100 text-amber-800 border border-amber-300">
+                                Promoted
+                              </span>
+                            )}
+                            {category === 'regular' && (
+                              <span className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-slate-100 text-slate-600 border border-slate-200">
+                                Regular
+                              </span>
+                            )}
+                            {category === 'unclassified' && (
+                              <span className="px-1.5 py-0.5 rounded text-[10px] font-normal bg-zinc-100 text-zinc-500">
+                                Unclassified
+                              </span>
+                            )}
+                          </div>
                         </td>
 
                         {/* 3. NAME OF STUDENT (with Father's Name directly below) */}
                         <td className="py-3 px-4">
                           <div className="font-semibold text-slate-900 leading-snug">
-                            {c.studentName}
+                            <HighlightedText text={c.studentName} query={tableSearch} />
                           </div>
                           <div className="text-[11px] text-slate-500 font-normal mt-0.5">
                             {c.fatherName ? `Father's Name: ${c.fatherName}` : "Father's Name: —"}
