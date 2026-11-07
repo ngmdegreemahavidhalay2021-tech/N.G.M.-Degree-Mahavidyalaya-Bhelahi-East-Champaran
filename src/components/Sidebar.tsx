@@ -1,25 +1,27 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   LayoutDashboard,
+  Calendar,
+  Layers,
   Building2,
   BookOpen,
   Users,
   FileEdit,
+  Link2,
   Award,
   BarChart3,
   FileSpreadsheet,
   Settings,
+  Palette,
   History,
   User,
   KeyRound,
   LogOut,
+  GraduationCap,
+  Sparkles,
   ChevronDown,
   ChevronRight,
-  GraduationCap,
-  Calendar,
-  Layers,
-  Palette,
-  Link2,
+  ShieldCheck,
 } from 'lucide-react';
 
 export type SidebarModuleKey =
@@ -46,6 +48,8 @@ interface SidebarProps {
   collegeName: string;
   adminUsername?: string;
   onLogout: () => void;
+  onOpenDeploymentGuide: () => void;
+  onSeedDemoData: () => void;
 }
 
 interface MenuGroup {
@@ -60,11 +64,10 @@ interface MenuGroup {
   }>;
 }
 
-// Exactly 7 Collapsible Groups in exact order requested in master brief
 const MENU_GROUPS: MenuGroup[] = [
   {
     id: 'dashboard',
-    title: '1. Dashboard',
+    title: 'A. Dashboard',
     icon: LayoutDashboard,
     items: [
       { key: 'overview', label: 'Dashboard Overview', icon: LayoutDashboard },
@@ -72,7 +75,7 @@ const MENU_GROUPS: MenuGroup[] = [
   },
   {
     id: 'academic',
-    title: '2. Academic Management',
+    title: 'B. Academic Management',
     icon: Building2,
     items: [
       { key: 'academic-sessions', label: 'Academic Sessions', icon: Calendar },
@@ -83,7 +86,7 @@ const MENU_GROUPS: MenuGroup[] = [
   },
   {
     id: 'students',
-    title: '3. Student Management',
+    title: 'C. Student Management',
     icon: Users,
     items: [
       { key: 'students', label: 'Student Directory & Upload', icon: Users },
@@ -91,7 +94,7 @@ const MENU_GROUPS: MenuGroup[] = [
   },
   {
     id: 'examination',
-    title: '4. Examination Management',
+    title: 'D. Examination Management',
     icon: FileEdit,
     items: [
       { key: 'builder', label: 'Practical Form Builder', icon: FileEdit },
@@ -101,7 +104,7 @@ const MENU_GROUPS: MenuGroup[] = [
   },
   {
     id: 'reports',
-    title: '5. Reports & Exports',
+    title: 'E. Reports & Exports',
     icon: BarChart3,
     items: [
       { key: 'reports', label: 'Reports & Analytics', icon: BarChart3 },
@@ -110,7 +113,7 @@ const MENU_GROUPS: MenuGroup[] = [
   },
   {
     id: 'administration',
-    title: '6. Administration',
+    title: 'F. Administration',
     icon: Settings,
     items: [
       { key: 'settings', label: 'Admin Settings', icon: Settings },
@@ -120,7 +123,7 @@ const MENU_GROUPS: MenuGroup[] = [
   },
   {
     id: 'account',
-    title: '7. My Account',
+    title: 'G. My Account',
     icon: User,
     items: [
       { key: 'profile', label: 'My Profile', icon: User },
@@ -135,12 +138,27 @@ export const Sidebar: React.FC<SidebarProps> = ({
   collegeName,
   adminUsername = 'Administrator',
   onLogout,
+  onOpenDeploymentGuide,
+  onSeedDemoData,
 }) => {
-  // Master requirement: COLLAPSED by default on login with accordion behavior
-  const [openGroupId, setOpenGroupId] = useState<string | null>(null);
+  // Track open state of each group. Default all to true so user sees the organized structure.
+  const [collapsedGroups, setCollapsedGroups] = useState<Record<string, boolean>>({});
+
+  // Automatically ensure the group containing the active module is expanded
+  useEffect(() => {
+    const parentGroup = MENU_GROUPS.find((g) =>
+      g.items.some((item) => item.key === activeModule)
+    );
+    if (parentGroup && collapsedGroups[parentGroup.id]) {
+      setCollapsedGroups((prev) => ({ ...prev, [parentGroup.id]: false }));
+    }
+  }, [activeModule]);
 
   const toggleGroup = (groupId: string) => {
-    setOpenGroupId((current) => (current === groupId ? null : groupId));
+    setCollapsedGroups((prev) => ({
+      ...prev,
+      [groupId]: !prev[groupId],
+    }));
   };
 
   return (
@@ -164,10 +182,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
         </div>
       </div>
 
-      {/* 7 Grouped Navigation List */}
-      <nav className="flex-1 p-3 space-y-2 overflow-y-auto custom-scrollbar">
+      {/* Grouped Navigation List */}
+      <nav className="flex-1 p-3 space-y-3 overflow-y-auto custom-scrollbar">
         {MENU_GROUPS.map((group) => {
-          const isOpen = openGroupId === group.id;
+          const isCollapsed = !!collapsedGroups[group.id];
           const hasActiveChild = group.items.some((i) => i.key === activeModule);
 
           return (
@@ -176,44 +194,42 @@ export const Sidebar: React.FC<SidebarProps> = ({
               <button
                 type="button"
                 onClick={() => toggleGroup(group.id)}
-                className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs font-bold tracking-wide transition ${
+                className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-[11px] font-bold uppercase tracking-wider transition ${
                   hasActiveChild
-                    ? 'text-blue-400 bg-blue-500/10 border border-blue-500/20'
-                    : 'text-slate-300 hover:text-white hover:bg-slate-800/60 border border-transparent'
+                    ? 'text-blue-400 bg-blue-500/5'
+                    : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/40'
                 }`}
               >
-                <div className="flex items-center gap-2.5 truncate">
-                  <group.icon className={`w-4 h-4 shrink-0 ${hasActiveChild ? 'text-blue-400' : 'text-slate-400'}`} />
-                  <span className="truncate">{group.title}</span>
+                <div className="flex items-center gap-2 truncate">
+                  <span>{group.title}</span>
                 </div>
-                {isOpen ? (
-                  <ChevronDown className="w-4 h-4 shrink-0 opacity-70 text-slate-400" />
+                {isCollapsed ? (
+                  <ChevronRight className="w-3.5 h-3.5 shrink-0 opacity-60" />
                 ) : (
-                  <ChevronRight className="w-4 h-4 shrink-0 opacity-70 text-slate-400" />
+                  <ChevronDown className="w-3.5 h-3.5 shrink-0 opacity-60" />
                 )}
               </button>
 
-              {/* Group Items (Accordion expanded when open) */}
-              {isOpen && (
-                <div className="space-y-1 pl-3 pt-1 border-l-2 border-slate-800 ml-3">
+              {/* Group Items */}
+              {!isCollapsed && (
+                <div className="space-y-0.5 pl-1">
                   {group.items.map((item) => {
                     const Icon = item.icon;
                     const isActive = activeModule === item.key;
                     return (
                       <button
                         key={item.key}
-                        type="button"
                         onClick={() => onSelectModule(item.key)}
-                        className={`w-full flex items-center justify-between px-3 py-2 rounded-lg text-xs font-semibold transition-all text-left ${
+                        className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs font-semibold transition-all text-left ${
                           isActive
                             ? 'bg-blue-600 text-white shadow-md shadow-blue-600/30'
-                            : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/60'
+                            : 'text-slate-300 hover:text-white hover:bg-slate-800/60'
                         }`}
                       >
-                        <div className="flex items-center gap-2 truncate">
+                        <div className="flex items-center gap-2.5 truncate">
                           <Icon
-                            className={`w-3.5 h-3.5 shrink-0 ${
-                              isActive ? 'text-white' : 'text-slate-500'
+                            className={`w-4 h-4 shrink-0 ${
+                              isActive ? 'text-white' : 'text-slate-400'
                             }`}
                           />
                           <span className="truncate">{item.label}</span>
@@ -231,31 +247,53 @@ export const Sidebar: React.FC<SidebarProps> = ({
             </div>
           );
         })}
+
+        {/* Support & Seeding Section */}
+        <div className="pt-2 border-t border-slate-800/80 space-y-1">
+          <div className="px-2.5 py-1 text-[10px] font-bold text-slate-500 uppercase tracking-wider">
+            Quick Actions
+          </div>
+
+          <button
+            onClick={onOpenDeploymentGuide}
+            className="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-semibold text-emerald-400 hover:bg-emerald-500/10 transition-colors text-left"
+          >
+            <BookOpen className="w-4 h-4 text-emerald-400 shrink-0" />
+            <span>Vercel Deploy Guide</span>
+          </button>
+
+          <button
+            onClick={onSeedDemoData}
+            className="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-semibold text-amber-400 hover:bg-amber-500/10 transition-colors text-left"
+            title="Seed college sample departments, subjects, and students"
+          >
+            <Sparkles className="w-4 h-4 text-amber-400 shrink-0" />
+            <span>Seed College Sample</span>
+          </button>
+        </div>
       </nav>
 
       {/* User Info & Logout Footer */}
       <div className="p-3 border-t border-slate-800 bg-slate-950/40">
         <div className="flex items-center justify-between p-2 rounded-xl bg-slate-800/40 border border-slate-700/50">
           <button
-            type="button"
             onClick={() => onSelectModule('profile')}
-            className="flex items-center gap-2.5 overflow-hidden text-left hover:opacity-80 transition cursor-pointer"
-            title="View Profile"
+            className="flex items-center gap-2 overflow-hidden text-left hover:opacity-80 transition cursor-pointer"
+            title="Open Admin Profile"
           >
-            <div className="w-7 h-7 rounded-lg bg-blue-600 flex items-center justify-center text-xs font-bold text-white uppercase shrink-0 shadow-sm">
+            <div className="w-7 h-7 rounded-lg bg-blue-600/30 border border-blue-500/40 flex items-center justify-center text-xs font-bold text-blue-300 uppercase shrink-0">
               {adminUsername.charAt(0)}
             </div>
             <div className="overflow-hidden">
-              <p className="text-xs font-bold text-slate-200 truncate">{adminUsername}</p>
-              <p className="text-[10px] text-emerald-400 font-mono leading-none">System Admin</p>
+              <p className="text-xs font-semibold text-slate-200 truncate">{adminUsername}</p>
+              <p className="text-[10px] text-emerald-400 font-mono">Permanent Admin</p>
             </div>
           </button>
 
           <button
-            type="button"
             onClick={onLogout}
-            className="p-1.5 rounded-lg text-slate-400 hover:text-rose-400 hover:bg-rose-500/10 transition-colors cursor-pointer"
-            title="Sign out of Admin session"
+            className="p-1.5 text-slate-400 hover:text-rose-400 hover:bg-rose-500/10 rounded-lg transition-colors cursor-pointer"
+            title="Log out of Admin session"
           >
             <LogOut className="w-4 h-4" />
           </button>

@@ -374,6 +374,7 @@ export const MarksModule: React.FC<MarksModuleProps> = ({
       const selectedList = allCollegeStudents.filter((s) => selectedToEnrol.has(s.id));
       await enrollStudentsInForm(currentForm, selectedList);
       setMode('bulk');
+      await loadFormData(currentForm.id);
       onRefresh();
     } catch (err: any) {
       alert(err.message || 'Failed to save enrollments');

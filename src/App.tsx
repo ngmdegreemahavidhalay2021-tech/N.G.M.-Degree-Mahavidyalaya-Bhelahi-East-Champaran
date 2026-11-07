@@ -40,6 +40,7 @@ import { PublicPracticalForm } from './components/PublicPracticalForm';
 import { AdminLoginModal } from './components/AdminLoginModal';
 import { BootstrapSetupModal } from './components/BootstrapSetupModal';
 import { PasswordRecoveryModal } from './components/PasswordRecoveryModal';
+import { DeploymentGuideModal } from './components/DeploymentGuideModal';
 import { PortalLoginPage } from './components/PortalLoginPage';
 import { ProfileModule } from './components/ProfileModule';
 import { AcademicSessionModule } from './components/AcademicSessionModule';
@@ -111,6 +112,7 @@ export default function App() {
   const [showBootstrapModal, setShowBootstrapModal] = useState(false);
   const [setupToken, setSetupToken] = useState<string | null>(null);
   const [showRecoveryModal, setShowRecoveryModal] = useState(false);
+  const [showDeploymentGuide, setShowDeploymentGuide] = useState(false);
 
   // Apply Appearance Theme & Typography to Document
   const applyAppearance = (settings: AppearanceSettings) => {
@@ -375,6 +377,7 @@ export default function App() {
           onLoginSuccess={handleLoginSuccess}
           onRequireSetup={handleRequireSetup}
           onOpenRecovery={() => setShowRecoveryModal(true)}
+          onOpenDeployGuide={() => setShowDeploymentGuide(true)}
         />
 
         {showBootstrapModal && setupToken && (
@@ -403,6 +406,10 @@ export default function App() {
             }}
           />
         )}
+
+        {showDeploymentGuide && (
+          <DeploymentGuideModal onClose={() => setShowDeploymentGuide(false)} />
+        )}
       </>
     );
   }
@@ -416,6 +423,8 @@ export default function App() {
         collegeName={collegeName}
         adminUsername={admin?.username}
         onLogout={handleLogout}
+        onOpenDeploymentGuide={() => setShowDeploymentGuide(true)}
+        onSeedDemoData={handleSeedDemoData}
       />
 
       {/* Main Content Area */}
@@ -432,6 +441,13 @@ export default function App() {
           </div>
 
           <div className="flex items-center gap-3">
+            <button
+              onClick={() => setShowDeploymentGuide(true)}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-slate-800 hover:bg-slate-700 text-emerald-400 border border-slate-700 transition-colors"
+            >
+              <BookOpen className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline">Deployment Guide</span>
+            </button>
 
             {admin ? (
               <div className="flex items-center gap-2 pl-2 border-l border-slate-800">
@@ -526,6 +542,16 @@ export default function App() {
                     <FileEdit className="w-4 h-4" />
                     <span>Build Practical Form</span>
                   </button>
+
+                  {departments.length === 0 && (
+                    <button
+                      onClick={handleSeedDemoData}
+                      className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-semibold bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-300 border border-emerald-500/30 transition-all"
+                    >
+                      <Sparkles className="w-4 h-4 text-emerald-400" />
+                      <span>Seed Sample Architecture</span>
+                    </button>
+                  )}
                 </div>
               </div>
 
@@ -822,6 +848,10 @@ export default function App() {
             setShowLoginModal(false);
             setShowRecoveryModal(true);
           }}
+          onOpenDeploymentGuide={() => {
+            setShowLoginModal(false);
+            setShowDeploymentGuide(true);
+          }}
           onClose={() => setShowLoginModal(false)}
         />
       )}
@@ -852,6 +882,10 @@ export default function App() {
             setShowLoginModal(true);
           }}
         />
+      )}
+
+      {showDeploymentGuide && (
+        <DeploymentGuideModal onClose={() => setShowDeploymentGuide(false)} />
       )}
     </div>
   );

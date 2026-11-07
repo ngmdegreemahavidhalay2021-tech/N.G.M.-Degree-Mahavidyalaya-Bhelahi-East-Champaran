@@ -17,6 +17,7 @@ interface AdminLoginModalProps {
   onLoginSuccess: (admin: AdminProfile, token: string) => void;
   onRequireSetup: (setupToken: string) => void;
   onOpenRecovery: () => void;
+  onOpenDeploymentGuide: () => void;
   onClose?: () => void;
 }
 
@@ -25,6 +26,7 @@ export const AdminLoginModal: React.FC<AdminLoginModalProps> = ({
   onLoginSuccess,
   onRequireSetup,
   onOpenRecovery,
+  onOpenDeploymentGuide,
   onClose,
 }) => {
   const [username, setUsername] = useState(
@@ -197,6 +199,16 @@ export const AdminLoginModal: React.FC<AdminLoginModalProps> = ({
             )}
           </button>
         </form>
+
+        <div className="mt-6 pt-4 border-t border-slate-800 text-center">
+          <button
+            onClick={onOpenDeploymentGuide}
+            className="text-xs text-slate-400 hover:text-slate-200 inline-flex items-center gap-1.5 transition-colors"
+          >
+            <HelpCircle className="w-3.5 h-3.5 text-emerald-400" />
+            <span>View GitHub & Vercel Deployment Documentation</span>
+          </button>
+        </div>
       </div>
     </div>
   );
