@@ -39,6 +39,7 @@ import {
   getPracticalFormByToken,
   getFormEnrollments,
   getFormMarks,
+  subscribeToFormMarks,
   saveBulkMarks,
   saveSingleMark,
   calculateResultStatus,
@@ -117,6 +118,9 @@ export const PublicPracticalForm: React.FC<PublicPracticalFormProps> = ({
   const [importStats, setImportStats] = useState<{
     totalRows: number;
     validRows: number;
+    newCount: number;
+    updatedCount: number;
+    skippedCount: number;
     invalidRows: number;
     duplicateRows: number;
     studentsNotFound: number;
@@ -129,10 +133,14 @@ export const PublicPracticalForm: React.FC<PublicPracticalFormProps> = ({
       marksObtained: number | null;
       isPresent: boolean;
       remarks?: string;
+      actionType?: 'new' | 'update' | 'skip';
     }>;
   }>({
     totalRows: 0,
     validRows: 0,
+    newCount: 0,
+    updatedCount: 0,
+    skippedCount: 0,
     invalidRows: 0,
     duplicateRows: 0,
     studentsNotFound: 0,
@@ -171,6 +179,52 @@ export const PublicPracticalForm: React.FC<PublicPracticalFormProps> = ({
     );
     return () => unsub();
   }, [practicalForm?.id]);
+
+  // Live real-time sync for marks: reflect imports and changes immediately in In-Charge interface
+  useEffect(() => {
+    const targetFormId = practicalForm?.id || assignment?.paperId || assignment?.id;
+    if (!targetFormId || candidates.length === 0) return;
+
+    const unsubMarks = subscribeToFormMarks(
+      targetFormId,
+      (liveMarks) => {
+        if (!liveMarks || liveMarks.length === 0) return;
+        const marksByStudentId = new Map(liveMarks.map((m) => [m.studentId, m]));
+        const marksByRoll = new Map(
+          liveMarks.filter((m) => m.rollNumber).map((m) => [m.rollNumber.trim().toUpperCase(), m])
+        );
+
+        setInputMap((prev) => {
+          const next = { ...prev };
+          let changed = false;
+          candidates.forEach((c) => {
+            const m = marksByStudentId.get(c.studentId) || marksByRoll.get(c.rollNumber.trim().toUpperCase());
+            if (m) {
+              const liveMarksStr = m.marksObtained !== null && m.marksObtained !== undefined ? String(m.marksObtained) : '';
+              const cur = prev[c.studentId];
+              if (
+                !cur ||
+                cur.marks !== liveMarksStr ||
+                cur.isPresent !== m.isPresent ||
+                cur.remarks !== (m.remarks || '')
+              ) {
+                next[c.studentId] = {
+                  marks: liveMarksStr,
+                  isPresent: m.isPresent,
+                  remarks: m.remarks || '',
+                };
+                changed = true;
+              }
+            }
+          });
+          return changed ? next : prev;
+        });
+      },
+      activeSubject
+    );
+
+    return () => unsubMarks();
+  }, [practicalForm?.id, assignment?.paperId, assignment?.id, activeSubject, candidates]);
 
   const loadExaminationData = async () => {
     try {
@@ -591,6 +645,9 @@ export const PublicPracticalForm: React.FC<PublicPracticalFormProps> = ({
     setImportStats({
       totalRows: 0,
       validRows: 0,
+      newCount: 0,
+      updatedCount: 0,
+      skippedCount: 0,
       invalidRows: 0,
       duplicateRows: 0,
       studentsNotFound: 0,
@@ -663,27 +720,106 @@ export const PublicPracticalForm: React.FC<PublicPracticalFormProps> = ({
 
         // Identify column indexes from header row
         let headerRowIndex = 0;
-        let rollCol = 1;
-        let marksCol = 4;
+        let rollCol = -1;
+        let idCol = -1;
+        let nameCol = -1;
+        let marksCol = -1;
+        let attendanceCol = -1;
+        let remarksCol = -1;
 
-        for (let r = 0; r < Math.min(rawRows.length, 5); r++) {
+        for (let r = 0; r < Math.min(rawRows.length, 6); r++) {
           const row = rawRows[r];
           if (!row) continue;
           row.forEach((cell: any, cIdx: number) => {
             const str = String(cell || '').trim().toUpperCase();
-            if (str.includes('ROLL') || str === 'ROLL NO.' || str === 'ROLL NO') {
+            if (!str) return;
+
+            // Student ID column
+            if (['STUDENT ID', 'STUDENT_ID', 'STUDENTID', 'ID', 'ENROLLMENT NO', 'REG_NO'].includes(str)) {
+              idCol = cIdx;
               headerRowIndex = r;
-              rollCol = cIdx;
             }
-            if (str.includes('MARK') || str === 'MARKS' || str === 'MARKS OBTAINED') {
-              marksCol = cIdx;
+
+            // Roll number column
+            if (
+              str === 'ROLL NO.' || str === 'ROLL NO' || str === 'ROLL_NO' ||
+              str === 'ROLL NUMBER' || str === 'ROLLNUMBER' || str === 'ROLL' ||
+              str === 'UNIVERSITY ROLL' || str === 'COLLEGE ROLL'
+            ) {
+              rollCol = cIdx;
+              headerRowIndex = r;
+            }
+
+            // Candidate Name column
+            if (
+              (str.includes('NAME') || str === 'CANDIDATE') &&
+              !str.includes('FATHER') && !str.includes('SUBJECT') && !str.includes('PAPER') && !str.includes('COLLEGE')
+            ) {
+              nameCol = cIdx;
+            }
+
+            // Marks column (Strict: ignore MAX MARKS, MIN MARKS, PASS MARKS)
+            const isExcludedMark =
+              str.includes('MAX') || str.includes('MIN') || str.includes('PASS') ||
+              str.includes('FULL') || str.includes('TOTAL') || str.includes('CUTOFF');
+
+            if (!isExcludedMark) {
+              if (
+                str === 'MARKS OBTAINED' || str === 'MARKS_OBTAINED' ||
+                str === 'OBTAINED MARKS' || str === 'PRACTICAL MARKS' ||
+                str === 'MARKS' || str === 'MARKS SECURED' || str === 'FINAL MARKS'
+              ) {
+                marksCol = cIdx;
+                headerRowIndex = r;
+              } else if (marksCol === -1 && (str.includes('MARK') || str.includes('OBTAINED'))) {
+                marksCol = cIdx;
+              }
+            }
+
+            // Attendance column
+            if (str.includes('ATTEND') || str === 'STATUS' || str === 'P/A') {
+              attendanceCol = cIdx;
+            }
+
+            // Remarks column
+            if (str.includes('REMARK') || str.includes('COMMENT')) {
+              remarksCol = cIdx;
             }
           });
+          if (rollCol !== -1 && marksCol !== -1) break;
         }
 
-        const candidateMap = new Map<string, EvaluatedStudentItem>();
+        // Safe Fallbacks
+        if (rollCol === -1) rollCol = idCol !== -1 ? idCol : 1;
+        if (marksCol === -1) {
+          for (let c = (rawRows[headerRowIndex]?.length || 5) - 1; c >= 0; c--) {
+            if (c !== rollCol && c !== nameCol && c !== idCol) {
+              marksCol = c;
+              break;
+            }
+          }
+          if (marksCol === -1) marksCol = 4;
+        }
+
+        // Multi-Index Candidate Lookup Map
+        const candidateMapByRoll = new Map<string, EvaluatedStudentItem>();
+        const candidateMapById = new Map<string, EvaluatedStudentItem>();
+        const candidateMapByDigitsOnly = new Map<string, EvaluatedStudentItem>();
+        const candidateMapByName = new Map<string, EvaluatedStudentItem>();
+
         candidates.forEach((c) => {
-          candidateMap.set(c.rollNumber.trim().toUpperCase(), c);
+          if (c.rollNumber) {
+            const rollKey = c.rollNumber.trim().toUpperCase();
+            candidateMapByRoll.set(rollKey, c);
+            const digits = c.rollNumber.replace(/\D/g, '');
+            if (digits) candidateMapByDigitsOnly.set(digits, c);
+          }
+          if (c.studentId) {
+            candidateMapById.set(c.studentId.trim().toUpperCase(), c);
+          }
+          if (c.studentName) {
+            candidateMapByName.set(c.studentName.trim().toUpperCase(), c);
+          }
         });
 
         const seenRolls = new Set<string>();
@@ -695,10 +831,14 @@ export const PublicPracticalForm: React.FC<PublicPracticalFormProps> = ({
           marksObtained: number | null;
           isPresent: boolean;
           remarks?: string;
+          actionType?: 'new' | 'update' | 'skip';
         }> = [];
 
         let totalRows = 0;
         let validRows = 0;
+        let newCount = 0;
+        let updatedCount = 0;
+        let skippedCount = 0;
         let duplicateRows = 0;
         let studentsNotFound = 0;
         let marksOutOfRange = 0;
@@ -708,50 +848,80 @@ export const PublicPracticalForm: React.FC<PublicPracticalFormProps> = ({
           if (!row || row.length === 0) continue;
 
           const rollRaw = row[rollCol];
-          if (rollRaw === undefined || rollRaw === null || String(rollRaw).trim() === '') {
+          const idRaw = idCol !== -1 ? row[idCol] : undefined;
+          const nameRaw = nameCol !== -1 ? row[nameCol] : undefined;
+
+          if (
+            (rollRaw === undefined || rollRaw === null || String(rollRaw).trim() === '') &&
+            (idRaw === undefined || idRaw === null || String(idRaw).trim() === '')
+          ) {
             continue; // Skip trailing empty row
           }
 
           totalRows++;
-          const rollStr = String(rollRaw).trim().toUpperCase();
+          const rollStr = String(rollRaw ?? '').trim().toUpperCase();
+          const idStr = String(idRaw ?? '').trim().toUpperCase();
+          const nameStr = String(nameRaw ?? '').trim().toUpperCase();
+          const digitsRoll = rollStr.replace(/\D/g, '');
           const markRaw = row[marksCol];
+          const remarkRaw = remarksCol !== -1 ? String(row[remarksCol] ?? '').trim() : '';
 
-          // Check duplicate roll number in file
-          if (seenRolls.has(rollStr)) {
+          // Deduplication check
+          const primaryKey = idStr || rollStr;
+          if (seenRolls.has(primaryKey)) {
             duplicateRows++;
             errors.push({
               rowNumber: i + 1,
-              rollNumber: rollStr,
+              rollNumber: rollStr || idStr,
+              studentName: nameStr,
               marks: markRaw,
-              reason: `Duplicate Roll Number "${rollStr}" in uploaded Excel file.`,
+              reason: `Duplicate row identifier "${primaryKey}" in uploaded file.`,
             });
             continue;
           }
-          seenRolls.add(rollStr);
+          seenRolls.add(primaryKey);
 
           // Find candidate in current subject roster
-          const candidate = candidateMap.get(rollStr);
+          let candidate =
+            (idStr ? candidateMapById.get(idStr) : undefined) ||
+            candidateMapByRoll.get(rollStr) ||
+            candidateMapById.get(rollStr);
+
+          if (!candidate && digitsRoll) {
+            candidate = candidateMapByDigitsOnly.get(digitsRoll);
+          }
+          if (!candidate && nameStr) {
+            candidate = candidateMapByName.get(nameStr);
+          }
+
           if (!candidate) {
             studentsNotFound++;
             errors.push({
               rowNumber: i + 1,
-              rollNumber: rollStr,
+              rollNumber: rollStr || idStr,
+              studentName: nameStr,
               marks: markRaw,
-              reason: `Student with Roll Number "${rollStr}" is not in the allotted candidate list for ${currentSubj}.`,
+              reason: `Student with identifier "${rollStr || idStr}" is not in the active candidate roster for ${currentSubj}.`,
             });
             continue;
           }
 
-          // Validate Marks
+          // Validate Marks & Attendance
           const markStr = String(markRaw ?? '').trim().toUpperCase();
           let isPresent = true;
           let parsedMarks: number | null = null;
+
+          if (attendanceCol !== -1 && row[attendanceCol] !== undefined) {
+            const attVal = String(row[attendanceCol]).trim().toUpperCase();
+            if (attVal === 'A' || attVal === 'ABS' || attVal === 'ABSENT' || attVal === 'FALSE') {
+              isPresent = false;
+            }
+          }
 
           if (markStr === 'ABS' || markStr === 'ABSENT' || markStr === 'AB') {
             isPresent = false;
             parsedMarks = null;
           } else if (markStr === '' || markStr === 'PENDING' || markStr === 'NULL' || markStr === '-') {
-            isPresent = true;
             parsedMarks = null;
           } else {
             const num = Number(markStr);
@@ -759,7 +929,7 @@ export const PublicPracticalForm: React.FC<PublicPracticalFormProps> = ({
               marksOutOfRange++;
               errors.push({
                 rowNumber: i + 1,
-                rollNumber: rollStr,
+                rollNumber: candidate.rollNumber,
                 studentName: candidate.studentName,
                 marks: markRaw,
                 reason: `Invalid non-numeric marks value "${markRaw}". Enter number or "ABSENT".`,
@@ -770,10 +940,10 @@ export const PublicPracticalForm: React.FC<PublicPracticalFormProps> = ({
             if (!allowDecimals && markStr.includes('.')) {
               errors.push({
                 rowNumber: i + 1,
-                rollNumber: rollStr,
+                rollNumber: candidate.rollNumber,
                 studentName: candidate.studentName,
                 marks: markRaw,
-                reason: `Decimal marks are not permitted. Please enter integers only.`,
+                reason: `Decimal marks are not permitted for this examination. Please enter integers only.`,
               });
               continue;
             }
@@ -782,7 +952,7 @@ export const PublicPracticalForm: React.FC<PublicPracticalFormProps> = ({
               marksOutOfRange++;
               errors.push({
                 rowNumber: i + 1,
-                rollNumber: rollStr,
+                rollNumber: candidate.rollNumber,
                 studentName: candidate.studentName,
                 marks: markRaw,
                 reason: `Marks (${num}) outside permitted range [0 - ${maxMarks}].`,
@@ -791,7 +961,27 @@ export const PublicPracticalForm: React.FC<PublicPracticalFormProps> = ({
             }
 
             parsedMarks = num;
-            isPresent = true;
+            if (isPresent) isPresent = true;
+          }
+
+          // Compare with existing entry to determine New vs Update vs Skip
+          const existingEntry = inputMap[candidate.studentId];
+          const existingMarksStr = existingEntry?.marks ?? '';
+          const newMarksStr = parsedMarks !== null ? String(parsedMarks) : '';
+          const isExistingPresent = existingEntry ? existingEntry.isPresent : true;
+
+          let actionType: 'new' | 'update' | 'skip' = 'new';
+          if (existingEntry && (existingMarksStr !== '' || !isExistingPresent)) {
+            if (existingMarksStr === newMarksStr && isExistingPresent === isPresent) {
+              actionType = 'skip';
+              skippedCount++;
+            } else {
+              actionType = 'update';
+              updatedCount++;
+            }
+          } else {
+            actionType = 'new';
+            newCount++;
           }
 
           validRows++;
@@ -801,13 +991,17 @@ export const PublicPracticalForm: React.FC<PublicPracticalFormProps> = ({
             studentName: candidate.studentName,
             marksObtained: parsedMarks,
             isPresent,
-            remarks: '',
+            remarks: remarkRaw,
+            actionType,
           });
         }
 
         setImportStats({
           totalRows,
           validRows,
+          newCount,
+          updatedCount,
+          skippedCount,
           invalidRows: errors.length,
           duplicateRows,
           studentsNotFound,
@@ -833,7 +1027,7 @@ export const PublicPracticalForm: React.FC<PublicPracticalFormProps> = ({
       const formId = practicalForm?.id || assignment?.id || '';
       const cleanSubj = activeSubject.trim().toUpperCase();
 
-      // Write valid records directly to Firestore
+      // Write valid records directly to Firestore with server-side write verification
       if (assignment) {
         const records = importStats.validRecords.map((r) => ({
           studentId: r.studentId,
@@ -861,13 +1055,18 @@ export const PublicPracticalForm: React.FC<PublicPracticalFormProps> = ({
 
       await logActivity(
         'MARKS_UPDATED_VIA_IMPORT',
-        `Successfully imported and saved marks for ${importStats.validRecords.length} candidates in subject ${cleanSubj}`,
+        `Imported & verified marks for ${importStats.validRecords.length} candidates in subject ${cleanSubj}`,
         'MarksRecord',
         formId,
         inchargeDisplayName
       );
 
-      // Update local inputMap
+      // Immediately reload subject data to guarantee UI displays fresh database values
+      if (practicalForm) {
+        await loadSubjectData(practicalForm, cleanSubj, assignedSubjects);
+      }
+
+      // Update local inputMap immediately
       setInputMap((prev) => {
         const next = { ...prev };
         importStats.validRecords.forEach((r) => {
@@ -880,7 +1079,9 @@ export const PublicPracticalForm: React.FC<PublicPracticalFormProps> = ({
         return next;
       });
 
-      setImportSuccessAlert(`Successfully updated ${importStats.validRecords.length} candidate marks in Firestore!`);
+      setImportSuccessAlert(
+        `Successfully saved and verified ${importStats.validRecords.length} student marks in Firebase! (${importStats.newCount} new, ${importStats.updatedCount} updated, ${importStats.skippedCount} unchanged)`
+      );
       setTimeout(() => {
         setShowImportModal(false);
       }, 1800);
@@ -1380,21 +1581,21 @@ export const PublicPracticalForm: React.FC<PublicPracticalFormProps> = ({
                       <span className="text-emerald-700 block text-[10px]">Valid Marks</span>
                       <strong className="text-sm font-bold text-emerald-700">{importStats.validRows}</strong>
                     </div>
+                    <div className="p-2.5 bg-blue-50 border border-blue-200 rounded-xl">
+                      <span className="text-blue-700 block text-[10px]">New Entries</span>
+                      <strong className="text-sm font-bold text-blue-700">{importStats.newCount}</strong>
+                    </div>
+                    <div className="p-2.5 bg-indigo-50 border border-indigo-200 rounded-xl">
+                      <span className="text-indigo-700 block text-[10px]">Updated</span>
+                      <strong className="text-sm font-bold text-indigo-700">{importStats.updatedCount}</strong>
+                    </div>
+                    <div className="p-2.5 bg-slate-50 border border-slate-200 rounded-xl">
+                      <span className="text-slate-600 block text-[10px]">Unchanged</span>
+                      <strong className="text-sm font-bold text-slate-700">{importStats.skippedCount}</strong>
+                    </div>
                     <div className="p-2.5 bg-rose-50 border border-rose-200 rounded-xl">
-                      <span className="text-rose-700 block text-[10px]">Invalid Rows</span>
+                      <span className="text-rose-700 block text-[10px]">Issues / Rejected</span>
                       <strong className="text-sm font-bold text-rose-700">{importStats.invalidRows}</strong>
-                    </div>
-                    <div className="p-2.5 bg-amber-50 border border-amber-200 rounded-xl">
-                      <span className="text-amber-700 block text-[10px]">Duplicates</span>
-                      <strong className="text-sm font-bold text-amber-700">{importStats.duplicateRows}</strong>
-                    </div>
-                    <div className="p-2.5 bg-purple-50 border border-purple-200 rounded-xl">
-                      <span className="text-purple-700 block text-[10px]">Not Found</span>
-                      <strong className="text-sm font-bold text-purple-700">{importStats.studentsNotFound}</strong>
-                    </div>
-                    <div className="p-2.5 bg-red-50 border border-red-200 rounded-xl">
-                      <span className="text-red-700 block text-[10px]">Out of Range</span>
-                      <strong className="text-sm font-bold text-red-700">{importStats.marksOutOfRange}</strong>
                     </div>
                   </div>
 
@@ -1404,15 +1605,16 @@ export const PublicPracticalForm: React.FC<PublicPracticalFormProps> = ({
                       <div className="font-bold text-rose-900 flex items-center justify-between text-xs">
                         <span>Row-wise Validation Issues ({importStats.errors.length}):</span>
                         <span className="text-[11px] text-rose-600 font-normal">
-                          Only valid rows will be imported if confirmed
+                          Only valid rows ({importStats.validRows}) will be imported into Firebase
                         </span>
                       </div>
-                      <div className="max-h-40 overflow-y-auto space-y-1">
+                      <div className="max-h-44 overflow-y-auto space-y-1">
                         {importStats.errors.map((err, i) => (
                           <div key={i} className="text-[11px] text-rose-800 bg-white p-2 rounded-lg border border-rose-200 flex items-start gap-2">
                             <span className="font-mono font-bold shrink-0">Row {err.rowNumber}:</span>
                             <span className="font-mono shrink-0">[{err.rollNumber}]</span>
-                            <span className="flex-1">{err.reason}</span>
+                            {err.studentName && <span className="font-semibold shrink-0">({err.studentName})</span>}
+                            <span className="flex-1 text-rose-700">{err.reason}</span>
                           </div>
                         ))}
                       </div>

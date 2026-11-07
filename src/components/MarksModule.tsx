@@ -108,9 +108,16 @@ export const MarksModule: React.FC<MarksModuleProps> = ({
     const rebuildInputMap = (enrs: FormEnrollment[], mrks: MarksRecord[]) => {
       const map: Record<string, { marks: string; isPresent: boolean; remarks: string }> = {};
       const savedByStudent = new Map(mrks.map((m) => [m.studentId, m]));
+      const savedByRoll = new Map(
+        mrks.filter((m) => m.rollNumber).map((m) => [m.rollNumber.trim().toUpperCase(), m])
+      );
 
       enrs.forEach((e) => {
-        const saved = savedByStudent.get(e.studentId);
+        const saved =
+          savedByStudent.get(e.studentId) ||
+          savedByRoll.get(e.rollNumber.trim().toUpperCase()) ||
+          (e.studentId ? savedByRoll.get(e.studentId.trim().toUpperCase()) : undefined);
+
         if (saved) {
           map[e.studentId] = {
             marks: saved.marksObtained !== null && saved.marksObtained !== undefined ? String(saved.marksObtained) : '',
@@ -374,7 +381,6 @@ export const MarksModule: React.FC<MarksModuleProps> = ({
       const selectedList = allCollegeStudents.filter((s) => selectedToEnrol.has(s.id));
       await enrollStudentsInForm(currentForm, selectedList);
       setMode('bulk');
-      await loadFormData(currentForm.id);
       onRefresh();
     } catch (err: any) {
       alert(err.message || 'Failed to save enrollments');

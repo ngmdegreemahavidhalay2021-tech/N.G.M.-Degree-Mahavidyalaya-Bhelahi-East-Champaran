@@ -56,6 +56,7 @@ import {
   updatePracticalForm,
   duplicatePracticalForm,
   deletePracticalForm,
+  deleteAllPracticalForms,
   regenerateFormToken,
   getFormEnrollments,
   enrollStudentsInForm,
@@ -645,6 +646,21 @@ export const FormBuilderModule: React.FC<FormBuilderModuleProps> = ({
     }
   };
 
+  const handleDeleteAllForms = async () => {
+    if (forms.length === 0) return;
+    const ok = window.confirm(
+      `Permanently delete ALL (${forms.length}) practical examination forms? This will reset Total Forms counter to 0.`
+    );
+    if (!ok) return;
+
+    try {
+      await deleteAllPracticalForms();
+      onRefresh();
+    } catch (err: any) {
+      alert(err.message || 'Failed to delete all practical forms');
+    }
+  };
+
   const handleRegenerateToken = async (id: string) => {
     const ok = window.confirm(
       'Regenerate public shareable link? The previous link will immediately stop working.'
@@ -786,13 +802,26 @@ export const FormBuilderModule: React.FC<FormBuilderModuleProps> = ({
           </p>
         </div>
 
-        <button
-          onClick={handleOpenCreate}
-          className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl text-xs font-semibold bg-blue-600 hover:bg-blue-500 text-white shadow-lg shadow-blue-600/30 transition-all cursor-pointer shrink-0"
-        >
-          <Plus className="w-4 h-4" />
-          <span>Create Practical Form</span>
-        </button>
+        <div className="flex items-center gap-2 shrink-0">
+          {forms.length > 0 && (
+            <button
+              onClick={handleDeleteAllForms}
+              className="inline-flex items-center gap-1.5 px-3.5 py-2.5 rounded-xl text-xs font-semibold bg-rose-600/10 hover:bg-rose-600/20 text-rose-300 border border-rose-500/30 transition-all cursor-pointer"
+              title="Delete all practical forms"
+            >
+              <Trash2 className="w-3.5 h-3.5 text-rose-400" />
+              <span>Delete All Forms</span>
+            </button>
+          )}
+
+          <button
+            onClick={handleOpenCreate}
+            className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl text-xs font-semibold bg-blue-600 hover:bg-blue-500 text-white shadow-lg shadow-blue-600/30 transition-all cursor-pointer"
+          >
+            <Plus className="w-4 h-4" />
+            <span>Create Practical Form</span>
+          </button>
+        </div>
       </div>
 
       {/* Filter and Search Bar */}

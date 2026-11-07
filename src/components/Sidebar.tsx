@@ -48,7 +48,6 @@ interface SidebarProps {
   collegeName: string;
   adminUsername?: string;
   onLogout: () => void;
-  onOpenDeploymentGuide: () => void;
   onSeedDemoData: () => void;
 }
 
@@ -138,24 +137,14 @@ export const Sidebar: React.FC<SidebarProps> = ({
   collegeName,
   adminUsername = 'Administrator',
   onLogout,
-  onOpenDeploymentGuide,
   onSeedDemoData,
 }) => {
-  // Track open state of each group. Default all to true so user sees the organized structure.
-  const [collapsedGroups, setCollapsedGroups] = useState<Record<string, boolean>>({});
-
-  // Automatically ensure the group containing the active module is expanded
-  useEffect(() => {
-    const parentGroup = MENU_GROUPS.find((g) =>
-      g.items.some((item) => item.key === activeModule)
-    );
-    if (parentGroup && collapsedGroups[parentGroup.id]) {
-      setCollapsedGroups((prev) => ({ ...prev, [parentGroup.id]: false }));
-    }
-  }, [activeModule]);
+  // Track open state of each group. Default all groups to COLLAPSED (empty object) when initially loaded or refreshed.
+  // Never persist state in localStorage or sessionStorage.
+  const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({});
 
   const toggleGroup = (groupId: string) => {
-    setCollapsedGroups((prev) => ({
+    setExpandedGroups((prev) => ({
       ...prev,
       [groupId]: !prev[groupId],
     }));
@@ -185,7 +174,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       {/* Grouped Navigation List */}
       <nav className="flex-1 p-3 space-y-3 overflow-y-auto custom-scrollbar">
         {MENU_GROUPS.map((group) => {
-          const isCollapsed = !!collapsedGroups[group.id];
+          const isExpanded = !!expandedGroups[group.id];
           const hasActiveChild = group.items.some((i) => i.key === activeModule);
 
           return (
@@ -194,7 +183,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
               <button
                 type="button"
                 onClick={() => toggleGroup(group.id)}
-                className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-[11px] font-bold uppercase tracking-wider transition ${
+                className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-[11px] font-bold uppercase tracking-wider transition cursor-pointer ${
                   hasActiveChild
                     ? 'text-blue-400 bg-blue-500/5'
                     : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/40'
@@ -203,15 +192,15 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 <div className="flex items-center gap-2 truncate">
                   <span>{group.title}</span>
                 </div>
-                {isCollapsed ? (
-                  <ChevronRight className="w-3.5 h-3.5 shrink-0 opacity-60" />
-                ) : (
+                {isExpanded ? (
                   <ChevronDown className="w-3.5 h-3.5 shrink-0 opacity-60" />
+                ) : (
+                  <ChevronRight className="w-3.5 h-3.5 shrink-0 opacity-60" />
                 )}
               </button>
 
               {/* Group Items */}
-              {!isCollapsed && (
+              {isExpanded && (
                 <div className="space-y-0.5 pl-1">
                   {group.items.map((item) => {
                     const Icon = item.icon;
@@ -220,7 +209,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                       <button
                         key={item.key}
                         onClick={() => onSelectModule(item.key)}
-                        className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs font-semibold transition-all text-left ${
+                        className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs font-semibold transition-all text-left cursor-pointer ${
                           isActive
                             ? 'bg-blue-600 text-white shadow-md shadow-blue-600/30'
                             : 'text-slate-300 hover:text-white hover:bg-slate-800/60'
@@ -255,16 +244,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
           </div>
 
           <button
-            onClick={onOpenDeploymentGuide}
-            className="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-semibold text-emerald-400 hover:bg-emerald-500/10 transition-colors text-left"
-          >
-            <BookOpen className="w-4 h-4 text-emerald-400 shrink-0" />
-            <span>Vercel Deploy Guide</span>
-          </button>
-
-          <button
             onClick={onSeedDemoData}
-            className="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-semibold text-amber-400 hover:bg-amber-500/10 transition-colors text-left"
+            className="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-semibold text-amber-400 hover:bg-amber-500/10 transition-colors text-left cursor-pointer"
             title="Seed college sample departments, subjects, and students"
           >
             <Sparkles className="w-4 h-4 text-amber-400 shrink-0" />

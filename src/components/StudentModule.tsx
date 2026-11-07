@@ -144,6 +144,52 @@ export const StudentModule: React.FC<StudentModuleProps> = ({
   // Copied token state
   const [copiedToken, setCopiedToken] = useState<string | null>(null);
 
+  // Manage candidates modal state
+  const [candidateModalPaper, setCandidateModalPaper] = useState<AcademicPaper | null>(null);
+  const [candidateModalSubject, setCandidateModalSubject] = useState<string>('');
+  const [candidateModalList, setCandidateModalList] = useState<PaperStudent[]>([]);
+  const [candidateSearch, setCandidateSearch] = useState<string>('');
+  const [deletingStudentId, setDeletingStudentId] = useState<string | null>(null);
+
+  const handleOpenCandidatesModal = (
+    paper: AcademicPaper,
+    subjectName: string,
+    currentStudents: PaperStudent[]
+  ) => {
+    setCandidateModalPaper(paper);
+    setCandidateModalSubject(subjectName);
+    setCandidateModalList(currentStudents);
+    setCandidateSearch('');
+  };
+
+  const handleDeletePaperCandidate = async (candidate: PaperStudent) => {
+    if (!candidateModalPaper) return;
+    const ok = window.confirm(
+      `Permanently delete student "${candidate.studentName}" (Roll: ${candidate.rollNumber}) from ${candidateModalSubject} in ${candidateModalPaper.paperName}?`
+    );
+    if (!ok) return;
+
+    try {
+      setDeletingStudentId(candidate.id);
+      await deletePaperStudent(candidate.id);
+
+      setCandidateModalList((prev) => prev.filter((s) => s.id !== candidate.id));
+      setPaperStudentsMap((prev) => {
+        const next = { ...prev };
+        if (next[candidateModalPaper.id]) {
+          next[candidateModalPaper.id] = next[candidateModalPaper.id].filter((s) => s.id !== candidate.id);
+        }
+        return next;
+      });
+
+      onRefresh();
+    } catch (err: any) {
+      alert(err.message || 'Failed to delete student');
+    } finally {
+      setDeletingStudentId(null);
+    }
+  };
+
   useEffect(() => {
     const unsubs: Array<() => void> = [];
 
@@ -1059,13 +1105,21 @@ export const StudentModule: React.FC<StudentModuleProps> = ({
                               </div>
 
                               {/* Configure Action */}
-                              <div className="pt-2 border-t border-slate-800/80 flex items-center justify-between">
+                              <div className="pt-2 border-t border-slate-800/80 flex flex-col gap-2">
                                 <button
                                   type="button"
                                   onClick={() => handleOpenAssignmentModal(paper, subjName)}
                                   className="w-full py-1.5 px-3 rounded-lg text-xs font-semibold bg-blue-600/20 hover:bg-blue-600/30 text-blue-300 border border-blue-500/30 text-center transition-colors"
                                 >
                                   {assignment ? 'Edit Assignment & Marks' : 'Assign Examiner & Marks'}
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => handleOpenCandidatesModal(paper, subjName, subjStudents)}
+                                  className="w-full py-1.5 px-3 rounded-lg text-xs font-medium bg-slate-800/80 hover:bg-slate-700 text-slate-300 border border-slate-700/60 text-center transition-colors flex items-center justify-center gap-1.5"
+                                >
+                                  <Users className="w-3.5 h-3.5 text-blue-400" />
+                                  <span>Manage Candidates ({subjStudents.length})</span>
                                 </button>
                               </div>
                             </div>
@@ -1645,6 +1699,131 @@ export const StudentModule: React.FC<StudentModuleProps> = ({
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL 5: MANAGE ENROLLED CANDIDATES IN SUBJECT */}
+      {candidateModalPaper && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm">
+          <div className="relative w-full max-w-3xl bg-slate-900 border border-slate-800 rounded-2xl shadow-2xl flex flex-col max-h-[85vh] overflow-hidden">
+            {/* Header */}
+            <div className="p-5 border-b border-slate-800 flex items-center justify-between bg-slate-950/60">
+              <div className="flex items-center gap-3">
+                <div className="p-2 rounded-xl bg-blue-600/20 text-blue-400 border border-blue-500/30">
+                  <Users className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-slate-100 flex items-center gap-2">
+                    <span>Candidates for {candidateModalSubject}</span>
+                    <span className="font-mono text-xs px-2 py-0.5 rounded bg-blue-600/20 text-blue-300 border border-blue-500/30">
+                      {candidateModalList.length} Total
+                    </span>
+                  </h3>
+                  <p className="text-xs text-slate-400 mt-0.5">
+                    Paper: <strong>{candidateModalPaper.paperName}</strong> • {candidateModalPaper.session} • {candidateModalPaper.semester} ({candidateModalPaper.subjectType})
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setCandidateModalPaper(null)}
+                className="p-1.5 text-slate-400 hover:text-slate-200 rounded-lg hover:bg-slate-800"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Controls */}
+            <div className="p-4 border-b border-slate-800 bg-slate-950/30 flex items-center justify-between gap-3">
+              <div className="relative flex-1">
+                <Search className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
+                <input
+                  type="text"
+                  placeholder="Search by candidate name or roll number..."
+                  value={candidateSearch}
+                  onChange={(e) => setCandidateSearch(e.target.value)}
+                  className="w-full pl-9 pr-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-xs text-slate-200 placeholder-slate-500 focus:outline-none focus:border-blue-500"
+                />
+              </div>
+              {candidateSearch && (
+                <button
+                  type="button"
+                  onClick={() => setCandidateSearch('')}
+                  className="px-2.5 py-1.5 rounded-lg text-xs text-slate-400 hover:text-slate-200 bg-slate-800"
+                >
+                  Clear
+                </button>
+              )}
+            </div>
+
+            {/* List Table */}
+            <div className="flex-1 overflow-y-auto p-4">
+              {candidateModalList.length === 0 ? (
+                <div className="p-8 text-center text-slate-500">
+                  <Users className="w-8 h-8 text-slate-600 mx-auto mb-2" />
+                  <p className="text-xs font-semibold">No candidates enrolled in this subject.</p>
+                </div>
+              ) : (
+                <div className="overflow-x-auto rounded-xl border border-slate-800">
+                  <table className="w-full text-left text-xs">
+                    <thead className="bg-slate-950 text-slate-400 font-semibold border-b border-slate-800">
+                      <tr>
+                        <th className="py-2.5 px-3 w-10">#</th>
+                        <th className="py-2.5 px-3">Roll Number</th>
+                        <th className="py-2.5 px-3">Student Name</th>
+                        <th className="py-2.5 px-3">Father's Name</th>
+                        <th className="py-2.5 px-3">Section</th>
+                        <th className="py-2.5 px-3 text-right">Action</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-800/60 font-mono">
+                      {candidateModalList
+                        .filter(
+                          (c) =>
+                            c.rollNumber.toLowerCase().includes(candidateSearch.toLowerCase()) ||
+                            c.studentName.toLowerCase().includes(candidateSearch.toLowerCase())
+                        )
+                        .map((candidate, idx) => (
+                          <tr key={candidate.id} className="hover:bg-slate-800/40">
+                            <td className="py-2.5 px-3 text-slate-500">{idx + 1}</td>
+                            <td className="py-2.5 px-3 text-blue-300 font-bold">{candidate.rollNumber}</td>
+                            <td className="py-2.5 px-3 text-slate-200 font-sans font-medium">{candidate.studentName}</td>
+                            <td className="py-2.5 px-3 text-slate-400 font-sans">{candidate.fatherName || '—'}</td>
+                            <td className="py-2.5 px-3 text-slate-400">{candidate.section || '—'}</td>
+                            <td className="py-2.5 px-3 text-right">
+                              <button
+                                type="button"
+                                disabled={deletingStudentId === candidate.id}
+                                onClick={() => handleDeletePaperCandidate(candidate)}
+                                className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-semibold text-rose-400 hover:text-rose-300 hover:bg-rose-500/10 border border-rose-500/20 disabled:opacity-50 transition-colors"
+                                title="Delete candidate from database and practical forms"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                                <span>{deletingStudentId === candidate.id ? 'Deleting...' : 'Delete'}</span>
+                              </button>
+                            </td>
+                          </tr>
+                        ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+
+            {/* Footer */}
+            <div className="p-4 border-t border-slate-800 bg-slate-950/60 flex items-center justify-between text-xs">
+              <span className="text-slate-400">
+                Deleting a candidate cascades across all active practical rosters and updates statistics automatically.
+              </span>
+              <button
+                type="button"
+                onClick={() => setCandidateModalPaper(null)}
+                className="px-4 py-2 rounded-xl text-xs font-semibold bg-slate-800 hover:bg-slate-700 text-slate-200 transition-colors"
+              >
+                Close
+              </button>
+            </div>
           </div>
         </div>
       )}

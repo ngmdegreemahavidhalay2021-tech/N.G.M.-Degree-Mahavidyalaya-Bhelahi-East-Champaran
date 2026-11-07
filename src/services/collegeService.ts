@@ -625,7 +625,7 @@ export async function duplicatePracticalForm(id: string): Promise<PracticalForm>
 
 export async function deletePracticalForm(id: string): Promise<void> {
   try {
-    // 1. Delete associated form enrollments in batches
+    // 1. Delete associated form enrollments in batches so form rosters are cleared
     const enrSnap = await getDocs(query(collection(db, 'formEnrollments'), where('practicalFormId', '==', id)));
     if (!enrSnap.empty) {
       const batch = writeBatch(db);
@@ -633,18 +633,32 @@ export async function deletePracticalForm(id: string): Promise<void> {
       await batch.commit();
     }
 
-    // 2. Delete associated marks in batches
-    const marksSnap = await getDocs(query(collection(db, 'marks'), where('practicalFormId', '==', id)));
-    if (!marksSnap.empty) {
-      const batch = writeBatch(db);
-      marksSnap.forEach((d) => batch.delete(d.ref));
-      await batch.commit();
-    }
-
+    // 2. Delete the practical form document from practicalForms
     await deleteDoc(doc(db, 'practicalForms', id));
-    await logActivity('PRACTICAL_FORM_DELETED', `Deleted practical examination form ${id} and cleaned up linked enrollments and marks`, 'PracticalForm', id);
+    await logActivity('PRACTICAL_FORM_DELETED', `Deleted practical examination form ${id}`, 'PracticalForm', id);
   } catch (err) {
     handleFirestoreError(err, OperationType.DELETE, `practicalForms/${id}`);
+  }
+}
+
+export async function deleteAllPracticalForms(formIds?: string[]): Promise<void> {
+  try {
+    const formsSnap = await getDocs(collection(db, 'practicalForms'));
+    const batch = writeBatch(db);
+    formsSnap.forEach((d) => batch.delete(d.ref));
+    await batch.commit();
+
+    // Clean up all form enrollments
+    const enrSnap = await getDocs(collection(db, 'formEnrollments'));
+    if (!enrSnap.empty) {
+      const batchEnr = writeBatch(db);
+      enrSnap.forEach((d) => batchEnr.delete(d.ref));
+      await batchEnr.commit();
+    }
+
+    await logActivity('ALL_PRACTICAL_FORMS_DELETED', 'Deleted all practical examination forms from system', 'PracticalForm');
+  } catch (err) {
+    handleFirestoreError(err, OperationType.DELETE, 'practicalForms/all');
   }
 }
 
@@ -785,8 +799,68 @@ export async function updateStudent(id: string, updates: Partial<Student>): Prom
 
 export async function deleteStudent(id: string): Promise<void> {
   try {
+    // 1. Retrieve student doc to get rollNumber
+    let rollNumber = '';
+    try {
+      const sDoc = await getDoc(doc(db, 'students', id));
+      if (sDoc.exists()) {
+        rollNumber = (sDoc.data() as any).rollNumber || '';
+      }
+    } catch {}
+
+    const cleanRoll = rollNumber.trim().toUpperCase();
+
+    // 2. Delete from students collection
     await deleteDoc(doc(db, 'students', id));
-    await logActivity('STUDENT_DELETED', `Deleted student candidate ${id}`, 'Student', id);
+
+    // 3. Delete from paperStudents collection where id == id OR rollNumber == cleanRoll
+    try {
+      const pSnap = await getDocs(collection(db, 'paperStudents'));
+      const batchP = writeBatch(db);
+      let pCount = 0;
+      pSnap.forEach((d) => {
+        const data = d.data();
+        if (d.id === id || (cleanRoll && data.rollNumber && data.rollNumber.trim().toUpperCase() === cleanRoll)) {
+          batchP.delete(d.ref);
+          pCount++;
+        }
+      });
+      if (pCount > 0) await batchP.commit();
+    } catch (e) {
+      console.warn('Error cleaning paperStudents on student deletion:', e);
+    }
+
+    // 4. Delete from formEnrollments where studentId == id OR rollNumber == cleanRoll
+    const affectedFormIds = new Set<string>();
+    try {
+      const enrSnap = await getDocs(collection(db, 'formEnrollments'));
+      const batchE = writeBatch(db);
+      let eCount = 0;
+      enrSnap.forEach((d) => {
+        const data = d.data() as FormEnrollment;
+        if (data.studentId === id || (cleanRoll && data.rollNumber && data.rollNumber.trim().toUpperCase() === cleanRoll)) {
+          batchE.delete(d.ref);
+          if (data.practicalFormId) affectedFormIds.add(data.practicalFormId);
+          eCount++;
+        }
+      });
+      if (eCount > 0) await batchE.commit();
+    } catch (e) {
+      console.warn('Error cleaning formEnrollments on student deletion:', e);
+    }
+
+    // 5. Update studentCount on affected practicalForms
+    for (const fId of affectedFormIds) {
+      try {
+        const remaining = await getDocs(query(collection(db, 'formEnrollments'), where('practicalFormId', '==', fId)));
+        await updateDoc(doc(db, 'practicalForms', fId), {
+          studentCount: remaining.size,
+          updatedAt: new Date().toISOString(),
+        });
+      } catch {}
+    }
+
+    await logActivity('STUDENT_DELETED', `Deleted student candidate ${id} (${cleanRoll}) from all active rosters and forms`, 'Student', id);
   } catch (err) {
     handleFirestoreError(err, OperationType.DELETE, `students/${id}`);
   }
@@ -1233,23 +1307,25 @@ export async function saveBulkMarks(
   }>,
   updatedBy = 'Examiner',
   subjectName?: string
-): Promise<void> {
+): Promise<{ savedCount: number; verified: boolean }> {
   try {
     const batchSize = 400;
     const now = new Date().toISOString();
     const cleanSubj = (subjectName || (records[0]?.subject) || '').trim().toUpperCase();
+
+    let totalSaved = 0;
 
     for (let i = 0; i < records.length; i += batchSize) {
       const chunk = records.slice(i, i + batchSize);
       const batch = writeBatch(db);
 
       chunk.forEach((r) => {
-        const sId = r.studentId || r.enrollmentId || r.rollNumber || 'unknown';
+        const sId = (r.studentId || r.enrollmentId || r.rollNumber || 'unknown').trim();
         const rowSubj = (r.subject || cleanSubj || '').trim().toUpperCase();
         const id = rowSubj
-          ? `mark_${practicalFormId}_${rowSubj.replace(/[^a-zA-Z0-9]/g, '_')}_${sId}`
-          : `mark_${practicalFormId}_${sId}`;
-        const minPass = r.minPassingMarks ?? 33;
+          ? `mark_${practicalFormId}_${rowSubj.replace(/[^a-zA-Z0-9]/g, '_')}_${sId.replace(/[^a-zA-Z0-9]/g, '_')}`
+          : `mark_${practicalFormId}_${sId.replace(/[^a-zA-Z0-9]/g, '_')}`;
+        const minPass = r.minPassingMarks ?? 17;
         const isPres = r.isPresent !== false;
         const resultStatus = calculateResultStatus(r.marksObtained, isPres, minPass);
 
@@ -1257,8 +1333,8 @@ export async function saveBulkMarks(
           id,
           practicalFormId,
           studentId: sId,
-          rollNumber: r.rollNumber,
-          studentName: r.studentName,
+          rollNumber: r.rollNumber.trim().toUpperCase(),
+          studentName: r.studentName.trim(),
           subject: rowSubj || undefined,
           marksObtained: isPres ? r.marksObtained : null,
           isPresent: isPres,
@@ -1268,21 +1344,51 @@ export async function saveBulkMarks(
           updatedBy,
         };
         batch.set(doc(db, 'marks', id), data, { merge: true });
+        totalSaved++;
       });
 
       await batch.commit();
     }
 
+    // Verify marks are persisted in Firestore
+    const verifySnap = await getDocs(
+      query(collection(db, 'marks'), where('practicalFormId', '==', practicalFormId))
+    );
+    const verified = verifySnap.size > 0;
+
     await logActivity(
       'MARKS_BULK_SAVED',
-      `Saved evaluation marks for ${records.length} candidates in form ${practicalFormId}${cleanSubj ? ` (${cleanSubj})` : ''}`,
+      `Saved & verified evaluation marks for ${records.length} candidates in form ${practicalFormId}${cleanSubj ? ` (${cleanSubj})` : ''}`,
       'MarksRecord',
       practicalFormId,
       updatedBy
     );
+
+    return { savedCount: totalSaved, verified };
   } catch (err) {
     handleFirestoreError(err, OperationType.WRITE, 'marks/bulk');
+    throw err;
   }
+}
+
+export function subscribeToAllMarks(
+  callback: (marks: MarksRecord[]) => void,
+  onError?: (err: any) => void
+): Unsubscribe {
+  const colRef = collection(db, 'marks');
+  return onSnapshot(
+    colRef,
+    (snap) => {
+      const list: MarksRecord[] = [];
+      snap.forEach((d) => list.push({ id: d.id, ...d.data() } as MarksRecord));
+      callback(list);
+    },
+    (error) => {
+      console.warn('Real-time all marks subscription error:', error);
+      if (onError) onError(error);
+      else handleFirestoreError(error, OperationType.LIST, 'marks');
+    }
+  );
 }
 
 export async function resetFormMarks(practicalFormId: string): Promise<void> {
@@ -1314,40 +1420,83 @@ export async function getCollegeStats(): Promise<CollegeStats> {
       getDocs(collection(db, 'paperStudents')).catch(() => ({ size: 0, forEach: () => {} })),
     ]);
 
+    // 1. Total Practical Forms - strictly the count of practicalForms collection
+    const totalPracticalForms = forms.size || 0;
+
+    // Active & Closed Forms
     let activeLinks = 0;
     let closedForms = 0;
+    const validFormIds = new Set<string>();
 
     forms.forEach((f: any) => {
+      validFormIds.add(f.id);
       const d = f.data();
-      if (d.isActive && d.status === 'published') activeLinks++;
-      if (d.status === 'closed') closedForms++;
+      if (d.status === 'closed') {
+        closedForms++;
+      } else if (d.isActive !== false && d.status !== 'draft') {
+        activeLinks++;
+      }
     });
 
-    let assignmentMarksEntered = 0;
-    let assignmentPending = 0;
+    // Also include assignments if any
     assignments.forEach((a: any) => {
+      validFormIds.add(a.id);
       const d = a.data();
       if (d.isLocked || d.status === 'Final Submitted') {
         closedForms++;
       } else {
         activeLinks++;
       }
-      assignmentMarksEntered += (d.evaluatedCount || 0) + (d.absentCount || 0);
-      assignmentPending += (d.pendingCount || 0);
     });
 
-    const totalStudentsCount = (students.size || 0) + (pStudents.size || 0);
-    const totalFormsCount = (forms.size || 0) + (papers.size || 0);
-    const totalMarks = (marks.size || 0);
-    const pendingEntries = Math.max(0, totalStudentsCount - totalMarks);
+    // 2. Total Students - Unique candidates across students & paperStudents (excluding removed)
+    const uniqueRolls = new Set<string>();
+    students.forEach((s: any) => {
+      const d = s.data();
+      if (d.status !== 'removed') {
+        const roll = (d.rollNumber || s.id).trim().toUpperCase();
+        if (roll) uniqueRolls.add(roll);
+      }
+    });
+    pStudents.forEach((ps: any) => {
+      const d = ps.data();
+      if (d.status !== 'removed') {
+        const roll = (d.rollNumber || ps.id).trim().toUpperCase();
+        if (roll) uniqueRolls.add(roll);
+      }
+    });
+    const totalStudents = uniqueRolls.size;
+
+    // 3. Total Marks Entries & Submitted Marks
+    // Exclude marks belonging to deleted practical forms
+    let totalMarksSubmitted = 0;
+    marks.forEach((m: any) => {
+      const d = m.data();
+      const parentFormId = d.practicalFormId || d.assignmentId;
+      if (parentFormId && !validFormIds.has(parentFormId)) {
+        return; // Exclude deleted forms
+      }
+      if (d.isPresent === false || (d.marksObtained !== null && d.marksObtained !== undefined)) {
+        totalMarksSubmitted++;
+      }
+    });
+
+    // 4. Pending Marks Entries
+    let totalEnrolledInActiveForms = 0;
+    forms.forEach((f: any) => {
+      const d = f.data();
+      totalEnrolledInActiveForms += Number(d.studentCount || 0);
+    });
+
+    const pendingMarksEntries = totalPracticalForms === 0 ? 0 : Math.max(0, totalEnrolledInActiveForms - totalMarksSubmitted);
 
     return {
       totalDepartments: depts.size || 0,
       totalSubjects: subjs.size || 0,
-      totalPracticalForms: totalFormsCount,
-      totalStudents: totalStudentsCount,
-      totalMarksSubmitted: totalMarks,
-      pendingMarksEntries: pendingEntries,
+      totalPracticalForms,
+      totalStudents,
+      totalMarksSubmitted,
+      pendingMarksEntries,
       activeFormLinks: activeLinks,
       closedForms,
     };
@@ -2046,8 +2195,81 @@ export async function batchImportPaperStudents(
 
 export async function deletePaperStudent(id: string): Promise<void> {
   try {
+    let rollNumber = '';
+    let paperId = '';
+    try {
+      const psDoc = await getDoc(doc(db, 'paperStudents', id));
+      if (psDoc.exists()) {
+        const d = psDoc.data() as any;
+        rollNumber = d.rollNumber || '';
+        paperId = d.paperId || '';
+      }
+    } catch {}
+
+    const cleanRoll = rollNumber.trim().toUpperCase();
+
+    // 1. Delete from paperStudents
     await deleteDoc(doc(db, 'paperStudents', id));
-    await logActivity('PAPER_STUDENT_DELETED', `Deleted student candidate ${id}`, 'PaperStudent', id);
+
+    // 2. Delete from students where id == id or rollNumber == cleanRoll
+    try {
+      if (cleanRoll) {
+        const sSnap = await getDocs(query(collection(db, 'students'), where('rollNumber', '==', cleanRoll)));
+        if (!sSnap.empty) {
+          const batchS = writeBatch(db);
+          sSnap.forEach((d) => batchS.delete(d.ref));
+          await batchS.commit();
+        }
+      }
+    } catch {}
+
+    // 3. Delete from formEnrollments where studentId == id or rollNumber == cleanRoll
+    const affectedFormIds = new Set<string>();
+    try {
+      const enrSnap = await getDocs(collection(db, 'formEnrollments'));
+      const batchE = writeBatch(db);
+      let eCount = 0;
+      enrSnap.forEach((d) => {
+        const data = d.data() as FormEnrollment;
+        if (data.studentId === id || (cleanRoll && data.rollNumber && data.rollNumber.trim().toUpperCase() === cleanRoll)) {
+          batchE.delete(d.ref);
+          if (data.practicalFormId) affectedFormIds.add(data.practicalFormId);
+          eCount++;
+        }
+      });
+      if (eCount > 0) await batchE.commit();
+    } catch {}
+
+    // 4. Update studentCount on affected forms
+    for (const fId of affectedFormIds) {
+      try {
+        const remaining = await getDocs(query(collection(db, 'formEnrollments'), where('practicalFormId', '==', fId)));
+        await updateDoc(doc(db, 'practicalForms', fId), {
+          studentCount: remaining.size,
+          updatedAt: new Date().toISOString(),
+        });
+      } catch {}
+    }
+
+    // 5. Update examinerAssignments if paperId exists
+    if (paperId) {
+      try {
+        const asgns = await getDocs(query(collection(db, 'examinerAssignments'), where('paperId', '==', paperId)));
+        for (const aDoc of asgns.docs) {
+          const aData = aDoc.data() as any;
+          const remainingStudents = await getDocs(
+            query(collection(db, 'paperStudents'), where('paperId', '==', paperId), where('subject', '==', aData.subjectName))
+          );
+          await updateDoc(aDoc.ref, {
+            totalStudents: remainingStudents.size,
+            pendingCount: Math.max(0, remainingStudents.size - (aData.evaluatedCount || 0) - (aData.absentCount || 0)),
+            updatedAt: new Date().toISOString(),
+          });
+        }
+      } catch {}
+    }
+
+    await logActivity('PAPER_STUDENT_DELETED', `Deleted candidate ${id} (${cleanRoll}) from all active rosters`, 'PaperStudent', id);
   } catch (err) {
     handleFirestoreError(err, OperationType.DELETE, `paperStudents/${id}`);
   }
@@ -2214,7 +2436,7 @@ export async function saveAssignmentMarks(
     remarks?: string;
   }>,
   updatedBy = 'Examiner'
-): Promise<void> {
+): Promise<{ savedCount: number; verified: boolean }> {
   try {
     const batch = writeBatch(db);
     const now = new Date().toISOString();
@@ -2224,20 +2446,22 @@ export async function saveAssignmentMarks(
     let pendingCount = 0;
 
     records.forEach((r) => {
-      const id = `mark_${assignment.id}_${r.studentId}`;
+      const sId = r.studentId.trim().replace(/[^a-zA-Z0-9]/g, '_');
+      const id = `mark_${assignment.id}_${sId}`;
       const resStatus = calculateResultStatus(r.marksObtained, r.isPresent, assignment.minMarks);
 
       if (!r.isPresent) absentCount++;
       else if (r.marksObtained !== null && r.marksObtained !== undefined) evaluatedCount++;
       else pendingCount++;
 
-      const markData: AssignmentMarkRecord = {
+      const markData = {
         id,
         assignmentId: assignment.id,
+        practicalFormId: assignment.paperId || assignment.id,
         studentId: r.studentId,
-        rollNumber: r.rollNumber,
-        studentName: r.studentName,
-        subject: r.subject,
+        rollNumber: r.rollNumber.trim().toUpperCase(),
+        studentName: r.studentName.trim(),
+        subject: r.subject.trim().toUpperCase(),
         marksObtained: r.isPresent ? r.marksObtained : null,
         isPresent: r.isPresent,
         remarks: r.remarks || '',
@@ -2265,15 +2489,25 @@ export async function saveAssignmentMarks(
     });
 
     await batch.commit();
+
+    // Verify marks in Firestore
+    const verifySnap = await getDocs(
+      query(collection(db, 'marks'), where('assignmentId', '==', assignment.id))
+    );
+    const verified = verifySnap.size > 0;
+
     await logActivity(
       'ASSIGNMENT_MARKS_SAVED',
-      `Auto-saved marks for ${records.length} candidates in assignment ${assignment.id}`,
+      `Saved & verified marks for ${records.length} candidates in assignment ${assignment.id}`,
       'AssignmentMarkRecord',
       assignment.id,
       updatedBy
     );
+
+    return { savedCount: records.length, verified };
   } catch (err) {
     handleFirestoreError(err, OperationType.WRITE, 'marks/assignment');
+    throw err;
   }
 }
 
