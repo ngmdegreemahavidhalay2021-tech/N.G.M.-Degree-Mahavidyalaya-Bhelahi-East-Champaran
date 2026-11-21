@@ -15,7 +15,13 @@ try {
   // Ignore
 }
 
-const projectId = process.env.FIREBASE_PROJECT_ID || process.env.VITE_FIREBASE_PROJECT_ID || firebaseConfig.projectId;
+const cleanProj = (v?: string) => v?.trim().replace(/^[`"']+|[`"';}\s]+$/g, '').trim();
+const projectId =
+  (firebaseConfig.projectId && firebaseConfig.projectId !== 'remixed-project-id'
+    ? firebaseConfig.projectId
+    : undefined) ||
+  cleanProj(process.env.FIREBASE_PROJECT_ID) ||
+  cleanProj(process.env.VITE_FIREBASE_PROJECT_ID);
 const clientEmail = process.env.FIREBASE_CLIENT_EMAIL;
 let privateKey = process.env.FIREBASE_PRIVATE_KEY;
 

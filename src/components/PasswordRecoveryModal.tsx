@@ -112,7 +112,7 @@ export const PasswordRecoveryModal: React.FC<PasswordRecoveryModalProps> = ({
             Administrator Password Recovery
           </h2>
           <p className="text-xs text-slate-400 mt-1">
-            Verified cryptographic reset procedure (No backdoors or default keys)
+            Verify your administrator account details to reset your password.
           </p>
         </div>
 
@@ -143,7 +143,7 @@ export const PasswordRecoveryModal: React.FC<PasswordRecoveryModalProps> = ({
                   required
                   value={username}
                   onChange={(e) => setUsername(e.target.value)}
-                  placeholder="e.g. exam_controller_ngm"
+                  placeholder="Enter administrator username"
                   className="w-full pl-9 pr-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-sm text-slate-100 focus:outline-none focus:border-amber-500 font-mono"
                 />
               </div>
@@ -165,7 +165,7 @@ export const PasswordRecoveryModal: React.FC<PasswordRecoveryModalProps> = ({
                 />
               </div>
               <p className="text-[11px] text-slate-500 mt-1">
-                Must match the recovery email configured during First-Time Admin Setup.
+                Must match your registered administrator recovery email.
               </p>
             </div>
 
@@ -193,7 +193,7 @@ export const PasswordRecoveryModal: React.FC<PasswordRecoveryModalProps> = ({
                   {codeHint}
                 </p>
                 <p className="text-[10px] text-slate-400 mt-1">
-                  Valid for 15 minutes. In production with SMTP configured, this is sent exclusively to your verified inbox.
+                  This verification code is valid for 15 minutes.
                 </p>
               </div>
             )}

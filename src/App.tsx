@@ -45,6 +45,7 @@ import { ProfileModule } from './components/ProfileModule';
 import { AcademicSessionModule } from './components/AcademicSessionModule';
 import { SemesterModule } from './components/SemesterModule';
 import { SystemSettingsModule } from './components/SystemSettingsModule';
+import { MemoSheetModule } from './components/MemoSheetModule';
 import {
   Department,
   Subject,
@@ -163,18 +164,23 @@ export default function App() {
     initSystem();
   }, []);
 
-  // Real-time Firestore synchronization across all screens & tabs
+  // Real-time Firestore synchronization across all admin screens & tabs (only when authenticated)
   useEffect(() => {
+    if (!admin || publicFormToken) return;
+
     const unsubs: Array<() => void> = [];
+    const onSubError = (err: any) => {
+      console.warn('Firestore real-time listener notice:', err?.message || err);
+    };
 
     const unsubDepts = subscribeToDepartments((liveDepts) => {
       setDepartments(liveDepts);
-    });
+    }, onSubError);
     unsubs.push(unsubDepts);
 
     const unsubSubjs = subscribeToSubjects((liveSubjs) => {
       setSubjects(liveSubjs);
-    });
+    }, undefined, onSubError);
     unsubs.push(unsubSubjs);
 
     const unsubForms = subscribeToPracticalForms((liveForms) => {
@@ -184,7 +190,7 @@ export default function App() {
           if (st) setStats(st);
         })
         .catch(() => {});
-    });
+    }, onSubError);
     unsubs.push(unsubForms);
 
     const unsubStudents = subscribeToStudents((liveStudents) => {
@@ -194,7 +200,7 @@ export default function App() {
           if (st) setStats(st);
         })
         .catch(() => {});
-    });
+    }, undefined, onSubError);
     unsubs.push(unsubStudents);
 
     const unsubMarks = subscribeToAllMarks(() => {
@@ -203,13 +209,13 @@ export default function App() {
           if (st) setStats(st);
         })
         .catch(() => {});
-    });
+    }, onSubError);
     unsubs.push(unsubMarks);
 
     return () => {
       unsubs.forEach((u) => u());
     };
-  }, []);
+  }, [admin, publicFormToken]);
 
   const initSystem = async () => {
     try {
@@ -248,6 +254,7 @@ export default function App() {
           const data = await res.json();
           if (data.valid && data.admin) {
             setAdmin(data.admin);
+            await loadCollegeDatabase();
           } else {
             localStorage.removeItem('admin_session_token');
           }
@@ -255,8 +262,6 @@ export default function App() {
           // Token verification failed
         }
       }
-
-      await loadCollegeDatabase();
     } catch (err) {
       console.error('Initialization error:', err);
     } finally {
@@ -355,7 +360,7 @@ export default function App() {
         <p className="text-xs text-blue-400 font-medium mt-1">Practical Examination Marks Administration ERP</p>
         <div className="mt-6 flex items-center gap-2.5 text-xs text-slate-400">
           <div className="w-4 h-4 border-2 border-blue-500/30 border-t-blue-500 rounded-full animate-spin" />
-          <span>Connecting to Firebase Firestore...</span>
+          <span>Loading Examination Portal...</span>
         </div>
       </div>
     );
@@ -426,7 +431,6 @@ export default function App() {
         collegeName={collegeName}
         adminUsername={admin?.username}
         onLogout={handleLogout}
-        onSeedDemoData={handleSeedDemoData}
       />
 
       {/* Main Content Area */}
@@ -738,6 +742,11 @@ export default function App() {
             />
           )}
 
+          {/* NEW MODULE: MEMO SHEET */}
+          {activeModule === 'memo-sheet' && (
+            <MemoSheetModule collegeName={collegeName} />
+          )}
+
           {/* MODULE 9: REPORTS */}
           {activeModule === 'reports' && (
             <ReportsModule
@@ -761,6 +770,12 @@ export default function App() {
                 setCollegeName(name);
                 logActivity('INSTITUTION_NAME_UPDATED', `Updated college identity to ${name}`);
               }}
+              onAdminUpdated={(updated) => {
+                setAdmin(updated);
+                setBootstrapStatus((prev) =>
+                  prev ? { ...prev, adminUsername: updated.username } : prev
+                );
+              }}
             />
           )}
 
@@ -777,7 +792,12 @@ export default function App() {
           {activeModule === 'profile' && admin && (
             <ProfileModule
               admin={admin}
-              onProfileUpdated={(updated) => setAdmin(updated)}
+              onProfileUpdated={(updated) => {
+                setAdmin(updated);
+                setBootstrapStatus((prev) =>
+                  prev ? { ...prev, adminUsername: updated.username } : prev
+                );
+              }}
               initialTab="profile"
             />
           )}
@@ -786,7 +806,12 @@ export default function App() {
           {activeModule === 'change-password' && admin && (
             <ProfileModule
               admin={admin}
-              onProfileUpdated={(updated) => setAdmin(updated)}
+              onProfileUpdated={(updated) => {
+                setAdmin(updated);
+                setBootstrapStatus((prev) =>
+                  prev ? { ...prev, adminUsername: updated.username } : prev
+                );
+              }}
               initialTab="password"
             />
           )}

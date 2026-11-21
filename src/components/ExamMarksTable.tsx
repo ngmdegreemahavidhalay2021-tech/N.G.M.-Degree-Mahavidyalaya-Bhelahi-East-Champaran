@@ -314,7 +314,7 @@ export const ExamMarksTable: React.FC<ExamMarksTableProps> = ({
       {saveSuccess && (
         <div className="p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-300 text-xs flex items-center gap-2">
           <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
-          <span>Evaluation marks saved successfully to Firestore database.</span>
+          <span>Evaluation marks saved successfully.</span>
         </div>
       )}
 

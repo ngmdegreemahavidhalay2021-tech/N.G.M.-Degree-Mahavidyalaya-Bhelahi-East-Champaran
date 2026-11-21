@@ -104,9 +104,22 @@ export const PublicPracticalForm: React.FC<PublicPracticalFormProps> = ({
   const [inchargeDisplayName, setInchargeDisplayName] = useState('');
   const [tableSearch, setTableSearch] = useState('');
 
+  // Secure Access Gate (In-Charge Verification)
+  const [accessVerified, setAccessVerified] = useState<boolean>(() => {
+    try {
+      return sessionStorage.getItem(`incharge_access_verified_${token}`) === 'true';
+    } catch {
+      return false;
+    }
+  });
+
   // Final submission state
   const [submitting, setSubmitting] = useState(false);
   const [submittedSuccess, setSubmittedSuccess] = useState(false);
+
+  // Auto-Save Sequence Ref & Timer Ref (prevents older async overwrites)
+  const autoSaveSeqRef = useRef<number>(0);
+  const autoSaveTimerRef = useRef<any>(null);
 
   // Excel Import Modal State
   const [showImportModal, setShowImportModal] = useState(false);
@@ -154,6 +167,16 @@ export const PublicPracticalForm: React.FC<PublicPracticalFormProps> = ({
   useEffect(() => {
     loadExaminationData();
   }, [token]);
+
+  // Handle In-Charge verification confirmation
+  const handleVerifyAccess = () => {
+    try {
+      sessionStorage.setItem(`incharge_access_verified_${token}`, 'true');
+    } catch {
+      // ignore
+    }
+    setAccessVerified(true);
+  };
 
   // Live real-time sync for form metadata (lock state, status, active toggle, deactivation)
   useEffect(() => {
@@ -220,7 +243,10 @@ export const PublicPracticalForm: React.FC<PublicPracticalFormProps> = ({
           return changed ? next : prev;
         });
       },
-      activeSubject
+      activeSubject,
+      (err: any) => {
+        console.warn('Real-time form marks subscription notice:', err?.message || err);
+      }
     );
 
     return () => unsubMarks();
@@ -265,16 +291,36 @@ export const PublicPracticalForm: React.FC<PublicPracticalFormProps> = ({
         setSubjectCandidateCounts({ [asgnSubject]: mapped.length });
 
         const savedMarks = await getAssignmentMarks(asgn.id);
-        const marksMap = new Map(savedMarks.map((m) => [m.studentId, m]));
+        const marksByStudentId = new Map(savedMarks.map((m) => [m.studentId, m]));
+        const marksByRoll = new Map(
+          savedMarks.filter((m) => m.rollNumber).map((m) => [m.rollNumber.trim().toUpperCase(), m])
+        );
+
+        // Fallback to local draft storage if available
+        let localDraftMap: Record<string, any> = {};
+        try {
+          const draftKey = `draft_marks_${asgn.id}_${asgnSubject}`;
+          const cached = localStorage.getItem(draftKey);
+          if (cached) localDraftMap = JSON.parse(cached);
+        } catch {
+          // ignore
+        }
 
         const initialInputs: Record<string, { marks: string; isPresent: boolean; remarks: string }> = {};
         mapped.forEach((c) => {
-          const m = marksMap.get(c.studentId);
+          const m = marksByStudentId.get(c.studentId) || marksByRoll.get(c.rollNumber.trim().toUpperCase());
+          const draft = localDraftMap[c.studentId];
           if (m) {
             initialInputs[c.studentId] = {
               marks: m.marksObtained !== null && m.marksObtained !== undefined ? String(m.marksObtained) : '',
               isPresent: m.isPresent,
               remarks: m.remarks || '',
+            };
+          } else if (draft) {
+            initialInputs[c.studentId] = {
+              marks: draft.marks || '',
+              isPresent: draft.isPresent ?? true,
+              remarks: draft.remarks || '',
             };
           } else {
             initialInputs[c.studentId] = { marks: '', isPresent: true, remarks: '' };
@@ -310,7 +356,7 @@ export const PublicPracticalForm: React.FC<PublicPracticalFormProps> = ({
           : activeSubjs[0]?.subjectName || form.subjectName || 'GEOGRAPHY';
         setActiveSubject(initialSubj);
 
-        // Fetch all form enrollments and marks from Firestore
+        // Fetch all form enrollments and marks from database
         await loadSubjectData(form, initialSubj, activeSubjs);
         return;
       }
@@ -363,16 +409,36 @@ export const PublicPracticalForm: React.FC<PublicPracticalFormProps> = ({
 
       // Fetch saved marks specifically for this subject
       const marks = await getFormMarks(form.id, cleanSubj);
-      const marksMap = new Map(marks.map((m) => [m.studentId, m]));
+      const marksByStudentId = new Map(marks.map((m) => [m.studentId, m]));
+      const marksByRoll = new Map(
+        marks.filter((m) => m.rollNumber).map((m) => [m.rollNumber.trim().toUpperCase(), m])
+      );
+
+      // Fallback to local draft storage if available
+      let localDraftMap: Record<string, any> = {};
+      try {
+        const draftKey = `draft_marks_${form.id}_${cleanSubj}`;
+        const cached = localStorage.getItem(draftKey);
+        if (cached) localDraftMap = JSON.parse(cached);
+      } catch {
+        // ignore
+      }
 
       const inputs: Record<string, { marks: string; isPresent: boolean; remarks: string }> = {};
       mapped.forEach((c) => {
-        const m = marksMap.get(c.studentId);
+        const m = marksByStudentId.get(c.studentId) || marksByRoll.get(c.rollNumber.trim().toUpperCase());
+        const draft = localDraftMap[c.studentId];
         if (m) {
           inputs[c.studentId] = {
             marks: m.marksObtained !== null && m.marksObtained !== undefined ? String(m.marksObtained) : '',
             isPresent: m.isPresent,
             remarks: m.remarks || '',
+          };
+        } else if (draft) {
+          inputs[c.studentId] = {
+            marks: draft.marks || '',
+            isPresent: draft.isPresent ?? true,
+            remarks: draft.remarks || '',
           };
         } else {
           inputs[c.studentId] = { marks: '', isPresent: true, remarks: '' };
@@ -402,7 +468,89 @@ export const PublicPracticalForm: React.FC<PublicPracticalFormProps> = ({
     : `Session: ${practicalForm?.session || practicalForm?.examYear || '2025-29'} • ${practicalForm?.semester || 'Semester 2'} (${practicalForm?.subjectType || 'MJC'})`;
   const paperLabel = assignment ? assignment.paperName : practicalForm?.paperName || 'Practical Paper';
 
-  // Mark change with strict validation
+  // Save to Database (Permanent Auto-Save & Manual with Sequence Tracking)
+  const handleSaveDraftToFirestore = async (customMap?: Record<string, { marks: string; isPresent: boolean; remarks: string }>) => {
+    if (isLocked) return;
+
+    const currentSeq = ++autoSaveSeqRef.current;
+    const currentInputMap = customMap || inputMap;
+
+    // Immediately cache to localStorage as guaranteed offline-resilient draft
+    try {
+      const targetFormId = practicalForm?.id || assignment?.id;
+      if (targetFormId) {
+        localStorage.setItem(`draft_marks_${targetFormId}_${activeSubject}`, JSON.stringify(currentInputMap));
+      }
+    } catch {
+      // ignore
+    }
+
+    try {
+      setSaveStatus('saving');
+      setSaveErrorMsg(null);
+
+      if (assignment) {
+        const records = candidates.map((c) => {
+          const inp = currentInputMap[c.studentId] || { marks: '', isPresent: true, remarks: '' };
+          return {
+            studentId: c.studentId,
+            rollNumber: c.rollNumber,
+            studentName: c.studentName,
+            subject: c.subject,
+            marksObtained: inp.isPresent && inp.marks !== '' ? Number(inp.marks) : null,
+            isPresent: inp.isPresent,
+            remarks: inp.remarks,
+          };
+        });
+
+        await saveAssignmentMarks(assignment, records, inchargeDisplayName || 'Examiner');
+      } else if (practicalForm) {
+        const records = candidates.map((c) => {
+          const inp = currentInputMap[c.studentId] || { marks: '', isPresent: true, remarks: '' };
+          return {
+            studentId: c.studentId,
+            rollNumber: c.rollNumber,
+            studentName: c.studentName,
+            subject: activeSubject,
+            marksObtained: inp.isPresent && inp.marks !== '' ? Number(inp.marks) : null,
+            isPresent: inp.isPresent,
+            remarks: inp.remarks,
+            minPassingMarks: minMarks,
+          };
+        });
+
+        await saveBulkMarks(practicalForm.id, records, inchargeDisplayName || 'Incharge', activeSubject);
+      }
+
+      // Check if a newer edit happened while this save was executing
+      if (currentSeq === autoSaveSeqRef.current) {
+        setSaveStatus('saved');
+        setTimeout(() => {
+          setSaveStatus((s) => (s === 'saved' ? 'idle' : s));
+        }, 3000);
+      }
+    } catch (err: any) {
+      console.error('Error saving marks:', err);
+      if (currentSeq === autoSaveSeqRef.current) {
+        setSaveStatus('error');
+        setSaveErrorMsg(err.message || 'Connection problem or write error');
+      }
+    }
+  };
+
+  // Trigger debounced autosave (700ms)
+  const scheduleAutoSave = (updatedMap: Record<string, { marks: string; isPresent: boolean; remarks: string }>) => {
+    if (isLocked) return;
+    if (autoSaveTimerRef.current) {
+      clearTimeout(autoSaveTimerRef.current);
+    }
+    setSaveStatus('idle');
+    autoSaveTimerRef.current = setTimeout(() => {
+      handleSaveDraftToFirestore(updatedMap);
+    }, 700);
+  };
+
+  // Mark change with strict validation & debounced auto-save
   const handleMarkChange = (studentId: string, val: string) => {
     if (isLocked) return;
 
@@ -421,86 +569,35 @@ export const PublicPracticalForm: React.FC<PublicPracticalFormProps> = ({
       return;
     }
 
-    setInputMap((prev) => ({
-      ...prev,
+    const updated = {
+      ...inputMap,
       [studentId]: {
-        ...(prev[studentId] || { isPresent: true, remarks: '' }),
+        ...(inputMap[studentId] || { isPresent: true, remarks: '' }),
         marks: val,
         isPresent: true,
       },
-    }));
+    };
 
-    setSaveStatus('idle');
+    setInputMap(updated);
+    scheduleAutoSave(updated);
   };
 
-  // Toggle Attendance (Absent / Present)
+  // Toggle Attendance (Absent / Present) with auto-save
   const handleAttendanceToggle = (studentId: string) => {
     if (isLocked) return;
-    setInputMap((prev) => {
-      const cur = prev[studentId] || { marks: '', isPresent: true, remarks: '' };
-      const nextPresent = !cur.isPresent;
-      return {
-        ...prev,
-        [studentId]: {
-          ...cur,
-          isPresent: nextPresent,
-          marks: nextPresent ? cur.marks : '',
-        },
-      };
-    });
-    setSaveStatus('idle');
-  };
+    const cur = inputMap[studentId] || { marks: '', isPresent: true, remarks: '' };
+    const nextPresent = !cur.isPresent;
+    const updated = {
+      ...inputMap,
+      [studentId]: {
+        ...cur,
+        isPresent: nextPresent,
+        marks: nextPresent ? cur.marks : '',
+      },
+    };
 
-  // Save to Firestore (Auto-Save & Manual)
-  const handleSaveDraftToFirestore = async () => {
-    if (isLocked) return;
-
-    try {
-      setSaveStatus('saving');
-      setSaveErrorMsg(null);
-
-      if (assignment) {
-        const records = candidates.map((c) => {
-          const inp = inputMap[c.studentId] || { marks: '', isPresent: true, remarks: '' };
-          return {
-            studentId: c.studentId,
-            rollNumber: c.rollNumber,
-            studentName: c.studentName,
-            subject: c.subject,
-            marksObtained: inp.isPresent && inp.marks !== '' ? Number(inp.marks) : null,
-            isPresent: inp.isPresent,
-            remarks: inp.remarks,
-          };
-        });
-
-        await saveAssignmentMarks(assignment, records, inchargeDisplayName || 'Examiner');
-      } else if (practicalForm) {
-        const records = candidates.map((c) => {
-          const inp = inputMap[c.studentId] || { marks: '', isPresent: true, remarks: '' };
-          return {
-            studentId: c.studentId,
-            rollNumber: c.rollNumber,
-            studentName: c.studentName,
-            subject: activeSubject,
-            marksObtained: inp.isPresent && inp.marks !== '' ? Number(inp.marks) : null,
-            isPresent: inp.isPresent,
-            remarks: inp.remarks,
-            minPassingMarks: minMarks,
-          };
-        });
-
-        await saveBulkMarks(practicalForm.id, records, inchargeDisplayName || 'Incharge', activeSubject);
-      }
-
-      setSaveStatus('saved');
-      setTimeout(() => {
-        setSaveStatus((s) => (s === 'saved' ? 'idle' : s));
-      }, 3500);
-    } catch (err: any) {
-      console.error('Error saving marks:', err);
-      setSaveStatus('error');
-      setSaveErrorMsg(err.message || 'Connection problem or write error');
-    }
+    setInputMap(updated);
+    scheduleAutoSave(updated);
   };
 
   // Final Submit & Form Locking
@@ -1080,7 +1177,7 @@ export const PublicPracticalForm: React.FC<PublicPracticalFormProps> = ({
       });
 
       setImportSuccessAlert(
-        `Successfully saved and verified ${importStats.validRecords.length} student marks in Firebase! (${importStats.newCount} new, ${importStats.updatedCount} updated, ${importStats.skippedCount} unchanged)`
+        `Successfully saved and verified ${importStats.validRecords.length} student marks! (${importStats.newCount} new, ${importStats.updatedCount} updated, ${importStats.skippedCount} unchanged)`
       );
       setTimeout(() => {
         setShowImportModal(false);
@@ -1137,6 +1234,62 @@ export const PublicPracticalForm: React.FC<PublicPracticalFormProps> = ({
       c.studentName.toLowerCase().includes(tableSearch.toLowerCase())
   );
 
+  // Secure In-Charge Access Gate screen if not yet verified
+  if (!accessVerified) {
+    return (
+      <div className="min-h-screen bg-gradient-to-b from-slate-900 via-slate-900 to-slate-950 text-slate-100 flex items-center justify-center p-4">
+        <div className="max-w-md w-full bg-slate-900/90 border border-slate-800 rounded-3xl p-8 shadow-2xl space-y-6 relative overflow-hidden backdrop-blur-xl">
+          <div className="text-center space-y-3">
+            <div className="w-16 h-16 rounded-2xl bg-gradient-to-tr from-blue-600 to-indigo-500 flex items-center justify-center text-white mx-auto shadow-lg shadow-blue-500/30">
+              <ShieldCheck className="w-9 h-9" />
+            </div>
+            <div>
+              <h2 className="text-xl font-black text-white tracking-tight">
+                Practical Examination Portal
+              </h2>
+              <p className="text-xs text-blue-400 font-medium mt-1">
+                {collegeName}
+              </p>
+            </div>
+          </div>
+
+          <div className="p-4 bg-slate-950/70 border border-slate-800/80 rounded-2xl space-y-3 text-xs">
+            <div className="flex items-center justify-between pb-2 border-b border-slate-800 text-slate-400">
+              <span>Assigned In-Charge:</span>
+              <strong className="text-slate-100 font-semibold">{inchargeDisplayName || 'Subject In-Charge'}</strong>
+            </div>
+            <div className="flex items-center justify-between pb-2 border-b border-slate-800 text-slate-400">
+              <span>Academic Paper:</span>
+              <strong className="text-slate-100 font-mono">{paperLabel}</strong>
+            </div>
+            <div className="flex items-center justify-between pb-2 border-b border-slate-800 text-slate-400">
+              <span>Session / Semester:</span>
+              <span className="text-slate-200">{examSubTitle}</span>
+            </div>
+            <div className="flex items-center justify-between text-slate-400">
+              <span>Total Candidates:</span>
+              <strong className="text-emerald-400 font-mono">{candidates.length} Registered</strong>
+            </div>
+          </div>
+
+          <div className="space-y-3">
+            <button
+              type="button"
+              onClick={handleVerifyAccess}
+              className="w-full py-3 px-4 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold text-sm shadow-lg shadow-blue-600/30 transition-all flex items-center justify-center gap-2 cursor-pointer"
+            >
+              <ShieldCheck className="w-4 h-4" />
+              <span>Access Examination Form</span>
+            </button>
+            <p className="text-[11px] text-slate-500 text-center">
+              Confidential examination evaluation link. Authorized access only.
+            </p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-slate-50 text-slate-800 antialiased font-sans pb-16">
       {/* Top Academic Header */}
@@ -1155,24 +1308,24 @@ export const PublicPracticalForm: React.FC<PublicPracticalFormProps> = ({
           </div>
 
           <div className="flex items-center gap-2">
-            {/* Auto-Save Cloud Status */}
+            {/* Auto-Save Status */}
             <div className="flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-medium border bg-slate-50 border-slate-200">
               {saveStatus === 'saving' && (
                 <>
                   <div className="w-3 h-3 border-2 border-blue-600 border-t-transparent rounded-full animate-spin" />
-                  <span className="text-blue-600 font-semibold">Saving to Cloud...</span>
+                  <span className="text-blue-600 font-semibold">Saving...</span>
                 </>
               )}
               {saveStatus === 'saved' && (
                 <>
                   <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
-                  <span className="text-emerald-700 font-semibold">Saved to Firestore</span>
+                  <span className="text-emerald-700 font-semibold">Saved</span>
                 </>
               )}
               {saveStatus === 'error' && (
                 <>
                   <AlertCircle className="w-3.5 h-3.5 text-rose-600" />
-                  <span className="text-rose-700 font-semibold">Write Error</span>
+                  <span className="text-rose-700 font-semibold">Network Error — Retrying</span>
                 </>
               )}
               {saveStatus === 'idle' && (
@@ -1186,7 +1339,7 @@ export const PublicPracticalForm: React.FC<PublicPracticalFormProps> = ({
             {/* Export Excel Button */}
             <button
               onClick={handleExportExcel}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg bg-emerald-50 text-emerald-700 border border-emerald-200 hover:bg-emerald-100 transition-colors shadow-sm"
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg bg-emerald-50 text-emerald-700 border border-emerald-200 hover:bg-emerald-100 transition-colors shadow-sm cursor-pointer"
               title="Download Excel Template for this subject"
             >
               <Download className="w-3.5 h-3.5 text-emerald-600" />
@@ -1197,7 +1350,7 @@ export const PublicPracticalForm: React.FC<PublicPracticalFormProps> = ({
             {!isLocked && (
               <button
                 onClick={handleOpenImportModal}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg bg-blue-50 text-blue-700 border border-blue-200 hover:bg-blue-100 transition-colors shadow-sm"
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg bg-blue-50 text-blue-700 border border-blue-200 hover:bg-blue-100 transition-colors shadow-sm cursor-pointer"
                 title="Upload evaluated marks from Excel"
               >
                 <Upload className="w-3.5 h-3.5 text-blue-600" />
@@ -1210,6 +1363,34 @@ export const PublicPracticalForm: React.FC<PublicPracticalFormProps> = ({
 
       {/* Main Container */}
       <main className="max-w-5xl mx-auto px-4 pt-6 space-y-5">
+        {/* PERSONALIZED WELCOME BANNER (UPGRADE 04 REQUIREMENT) */}
+        <div className="bg-gradient-to-r from-blue-700 via-indigo-700 to-blue-800 rounded-2xl p-5 text-white shadow-md flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+          <div>
+            <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-white/15 text-blue-100 backdrop-blur-sm mb-1.5">
+              <ShieldCheck className="w-3.5 h-3.5 text-emerald-300" />
+              <span>Assigned Subject In-Charge</span>
+            </div>
+            <h2 className="text-xl sm:text-2xl font-black tracking-tight text-white">
+              Welcome Back, {inchargeDisplayName || 'In-Charge'}!
+            </h2>
+            <p className="text-xs text-blue-100/90 mt-1">
+              {examSubTitle} • <span className="font-mono font-semibold">{paperLabel}</span>
+            </p>
+          </div>
+
+          <div className="shrink-0 self-stretch sm:self-auto flex items-center justify-end">
+            {isLocked ? (
+              <span className="inline-flex items-center gap-1.5 text-xs font-bold text-rose-100 px-3.5 py-1.5 rounded-xl bg-rose-600/80 border border-rose-400/40 shadow-sm">
+                <Lock className="w-4 h-4" /> Final Submitted & Locked
+              </span>
+            ) : (
+              <span className="inline-flex items-center gap-1.5 text-xs font-bold text-emerald-100 px-3.5 py-1.5 rounded-xl bg-emerald-600/80 border border-emerald-400/40 shadow-sm">
+                <CheckCircle2 className="w-4 h-4 text-emerald-200" /> Open for Evaluation
+              </span>
+            )}
+          </div>
+        </div>
+
         {/* PROMINENT INCHARGE & ALLOTTED SUBJECTS HEADER CARD */}
         <div className="bg-white border-t-8 border-t-blue-600 border-x border-b border-slate-200 rounded-2xl p-6 shadow-sm space-y-4">
           <div className="flex flex-wrap items-start justify-between gap-3">
@@ -1218,24 +1399,12 @@ export const PublicPracticalForm: React.FC<PublicPracticalFormProps> = ({
                 <ShieldCheck className="w-3.5 h-3.5" />
                 <span>Authorized Examination Evaluation</span>
               </div>
-              <h2 className="text-2xl font-black text-slate-900 tracking-tight mt-1">
-                Incharge: {inchargeDisplayName || 'Kunal Singh'}
-              </h2>
+              <h3 className="text-lg font-bold text-slate-900 tracking-tight mt-1">
+                Evaluation Roster for {inchargeDisplayName}
+              </h3>
               <p className="text-xs text-slate-500 font-medium mt-1">
-                {examSubTitle} • <strong className="text-slate-700 font-mono">{paperLabel}</strong>
+                Active Subject: <strong className="text-blue-700 font-bold">{activeSubject}</strong> • Roster Count: <span className="font-mono font-bold text-slate-800">{candidates.length} candidates</span>
               </p>
-            </div>
-
-            <div>
-              {isLocked ? (
-                <span className="inline-flex items-center gap-1.5 text-xs font-bold text-rose-700 px-3.5 py-1.5 rounded-full bg-rose-50 border border-rose-200 shadow-sm">
-                  <Lock className="w-4 h-4" /> Final Submitted & Locked
-                </span>
-              ) : (
-                <span className="inline-flex items-center gap-1.5 text-xs font-bold text-emerald-700 px-3.5 py-1.5 rounded-full bg-emerald-50 border border-emerald-200 shadow-sm">
-                  <CheckCircle2 className="w-4 h-4 text-emerald-600" /> Open for Evaluation
-                </span>
-              )}
             </div>
           </div>
 
@@ -1313,7 +1482,7 @@ export const PublicPracticalForm: React.FC<PublicPracticalFormProps> = ({
           <div className="p-4 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs flex items-center gap-2 shadow-sm">
             <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0" />
             <span className="font-semibold">
-              Practical marks for {activeSubject} have been finalized, submitted, and locked in Firestore!
+              Practical marks for {activeSubject} have been finalized, saved, and submitted successfully!
             </span>
           </div>
         )}
@@ -1345,9 +1514,9 @@ export const PublicPracticalForm: React.FC<PublicPracticalFormProps> = ({
               <div className="flex items-center gap-2">
                 <button
                   type="button"
-                  onClick={handleSaveDraftToFirestore}
+                  onClick={() => handleSaveDraftToFirestore()}
                   disabled={saveStatus === 'saving'}
-                  className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-semibold bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-300 transition-all shadow-sm"
+                  className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-semibold bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-300 transition-all shadow-sm cursor-pointer"
                 >
                   <Save className="w-3.5 h-3.5" />
                   <span>Save Draft</span>
@@ -1605,7 +1774,7 @@ export const PublicPracticalForm: React.FC<PublicPracticalFormProps> = ({
                       <div className="font-bold text-rose-900 flex items-center justify-between text-xs">
                         <span>Row-wise Validation Issues ({importStats.errors.length}):</span>
                         <span className="text-[11px] text-rose-600 font-normal">
-                          Only valid rows ({importStats.validRows}) will be imported into Firebase
+                          Only valid rows ({importStats.validRows}) will be imported
                         </span>
                       </div>
                       <div className="max-h-44 overflow-y-auto space-y-1">
@@ -1629,7 +1798,7 @@ export const PublicPracticalForm: React.FC<PublicPracticalFormProps> = ({
               <button
                 type="button"
                 onClick={() => setShowImportModal(false)}
-                className="px-4 py-2 rounded-xl text-xs font-semibold text-slate-600 hover:bg-slate-200 transition-colors"
+                className="px-4 py-2 rounded-xl text-xs font-semibold text-slate-600 hover:bg-slate-200 transition-colors cursor-pointer"
               >
                 Cancel
               </button>
@@ -1638,12 +1807,12 @@ export const PublicPracticalForm: React.FC<PublicPracticalFormProps> = ({
                 type="button"
                 onClick={handleConfirmImport}
                 disabled={importStats.validRows === 0 || importingToDb || !!importMismatchError}
-                className="inline-flex items-center gap-1.5 px-6 py-2 rounded-xl text-xs font-bold bg-blue-600 hover:bg-blue-500 text-white shadow-md shadow-blue-600/30 disabled:opacity-50 transition-all"
+                className="inline-flex items-center gap-1.5 px-6 py-2 rounded-xl text-xs font-bold bg-blue-600 hover:bg-blue-500 text-white shadow-md shadow-blue-600/30 disabled:opacity-50 transition-all cursor-pointer"
               >
                 {importingToDb ? (
                   <>
                     <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                    <span>Saving to Firestore...</span>
+                    <span>Saving Marks...</span>
                   </>
                 ) : (
                   <>

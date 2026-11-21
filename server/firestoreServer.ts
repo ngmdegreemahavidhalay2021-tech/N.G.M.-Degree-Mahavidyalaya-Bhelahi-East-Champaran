@@ -25,14 +25,65 @@ try {
   // Ignore
 }
 
+function cleanEnvValue(val: string | undefined, pattern?: RegExp): string | undefined {
+  if (!val || typeof val !== 'string') return undefined;
+  const cleaned = val
+    .trim()
+    .replace(/^[`"']+/, '')
+    .replace(/[`"';}\s]+$/g, '')
+    .trim();
+  if (!cleaned) return undefined;
+  if (pattern && !pattern.test(cleaned)) return undefined;
+  return cleaned;
+}
+
+const hasAppletConfig = Boolean(
+  rawConfig?.projectId && rawConfig.projectId !== 'remixed-project-id'
+);
+
 const firebaseConfig = {
-  projectId: process.env.FIREBASE_PROJECT_ID || process.env.VITE_FIREBASE_PROJECT_ID || process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID || rawConfig?.projectId || 'vast-archive-1dzcr',
-  appId: process.env.FIREBASE_APP_ID || process.env.VITE_FIREBASE_APP_ID || process.env.NEXT_PUBLIC_FIREBASE_APP_ID || rawConfig?.appId || '1:85113631348:web:3b58b4185838c3b9049721',
-  apiKey: process.env.FIREBASE_API_KEY || process.env.VITE_FIREBASE_API_KEY || process.env.NEXT_PUBLIC_FIREBASE_API_KEY || rawConfig?.apiKey || 'AIzaSyA66T63kI2_np7ktpIzeDN729ZwyJ19MOg',
-  authDomain: process.env.FIREBASE_AUTH_DOMAIN || process.env.VITE_FIREBASE_AUTH_DOMAIN || process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN || rawConfig?.authDomain || 'vast-archive-1dzcr.firebaseapp.com',
-  firestoreDatabaseId: process.env.FIREBASE_FIRESTORE_DATABASE_ID || process.env.VITE_FIREBASE_FIRESTORE_DATABASE_ID || process.env.NEXT_PUBLIC_FIREBASE_FIRESTORE_DATABASE_ID || rawConfig?.firestoreDatabaseId || 'ai-studio-bf141177-705a-4793-b2bc-644ebb83d388',
-  storageBucket: process.env.FIREBASE_STORAGE_BUCKET || process.env.VITE_FIREBASE_STORAGE_BUCKET || process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET || rawConfig?.storageBucket || 'vast-archive-1dzcr.firebasestorage.app',
-  messagingSenderId: process.env.FIREBASE_MESSAGING_SENDER_ID || process.env.VITE_FIREBASE_MESSAGING_SENDER_ID || process.env.NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID || rawConfig?.messagingSenderId || '85113631348',
+  projectId:
+    (hasAppletConfig ? rawConfig.projectId : undefined) ||
+    cleanEnvValue(process.env.FIREBASE_PROJECT_ID, /^[a-z0-9-]+$/) ||
+    cleanEnvValue(process.env.VITE_FIREBASE_PROJECT_ID, /^[a-z0-9-]+$/) ||
+    cleanEnvValue(process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID, /^[a-z0-9-]+$/) ||
+    'vast-archive-1dzcr',
+  appId:
+    (hasAppletConfig ? rawConfig.appId : undefined) ||
+    cleanEnvValue(process.env.FIREBASE_APP_ID, /^\d+:\d+:[a-z]+:[a-f0-9]+$/i) ||
+    cleanEnvValue(process.env.VITE_FIREBASE_APP_ID, /^\d+:\d+:[a-z]+:[a-f0-9]+$/i) ||
+    cleanEnvValue(process.env.NEXT_PUBLIC_FIREBASE_APP_ID, /^\d+:\d+:[a-z]+:[a-f0-9]+$/i) ||
+    '1:85113631348:web:3b58b4185838c3b9049721',
+  apiKey:
+    (hasAppletConfig ? rawConfig.apiKey : undefined) ||
+    cleanEnvValue(process.env.FIREBASE_API_KEY, /^AIza[A-Za-z0-9_-]+$/) ||
+    cleanEnvValue(process.env.VITE_FIREBASE_API_KEY, /^AIza[A-Za-z0-9_-]+$/) ||
+    cleanEnvValue(process.env.NEXT_PUBLIC_FIREBASE_API_KEY, /^AIza[A-Za-z0-9_-]+$/) ||
+    'AIzaSyA66T63kI2_np7ktpIzeDN729ZwyJ19MOg',
+  authDomain:
+    (hasAppletConfig ? rawConfig.authDomain : undefined) ||
+    cleanEnvValue(process.env.FIREBASE_AUTH_DOMAIN, /^[a-z0-9.-]+$/i) ||
+    cleanEnvValue(process.env.VITE_FIREBASE_AUTH_DOMAIN, /^[a-z0-9.-]+$/i) ||
+    cleanEnvValue(process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN, /^[a-z0-9.-]+$/i) ||
+    'vast-archive-1dzcr.firebaseapp.com',
+  firestoreDatabaseId:
+    (hasAppletConfig ? rawConfig.firestoreDatabaseId : undefined) ||
+    cleanEnvValue(process.env.FIREBASE_FIRESTORE_DATABASE_ID, /^[a-z0-9()-]+$/i) ||
+    cleanEnvValue(process.env.VITE_FIREBASE_FIRESTORE_DATABASE_ID, /^[a-z0-9()-]+$/i) ||
+    cleanEnvValue(process.env.NEXT_PUBLIC_FIREBASE_FIRESTORE_DATABASE_ID, /^[a-z0-9()-]+$/i) ||
+    'ai-studio-bf141177-705a-4793-b2bc-644ebb83d388',
+  storageBucket:
+    (hasAppletConfig ? rawConfig.storageBucket : undefined) ||
+    cleanEnvValue(process.env.FIREBASE_STORAGE_BUCKET, /^[a-z0-9.-]+$/i) ||
+    cleanEnvValue(process.env.VITE_FIREBASE_STORAGE_BUCKET, /^[a-z0-9.-]+$/i) ||
+    cleanEnvValue(process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET, /^[a-z0-9.-]+$/i) ||
+    'vast-archive-1dzcr.firebasestorage.app',
+  messagingSenderId:
+    (hasAppletConfig ? rawConfig.messagingSenderId : undefined) ||
+    cleanEnvValue(process.env.FIREBASE_MESSAGING_SENDER_ID, /^\d+$/) ||
+    cleanEnvValue(process.env.VITE_FIREBASE_MESSAGING_SENDER_ID, /^\d+$/) ||
+    cleanEnvValue(process.env.NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID, /^\d+$/) ||
+    '85113631348',
 };
 
 // Initialize server-side Firestore instance with target databaseId
@@ -383,6 +434,82 @@ export async function updateAdminProfileServer(
   }
 
   return updatedRecord;
+}
+
+/**
+ * Validates duplicate User IDs and updates Administrator User ID (username) permanently in Firestore
+ * without modifying passwordHash or other profile fields.
+ */
+export async function updateAdminUsernameServer(
+  adminUid: string,
+  newUsername: string
+): Promise<AdminRecord> {
+  const db = getDb();
+  const cleanUsername = newUsername.trim();
+  const cleanLower = cleanUsername.toLowerCase();
+  const now = new Date().toISOString();
+
+  // 1. Validate uniqueness across all admin records in Firestore
+  const adminsSnap = await getDocs(collection(db, 'admins'));
+  let targetDocId: string | null = null;
+  let existingData: AdminRecord | null = null;
+
+  for (const d of adminsSnap.docs) {
+    const data = d.data() as AdminRecord;
+    const isSelf = d.id === adminUid || data.uid === adminUid;
+    if (isSelf) {
+      targetDocId = d.id;
+      existingData = data;
+    } else if (data.username && data.username.trim().toLowerCase() === cleanLower) {
+      throw new Error('This User ID is already in use. Please choose a different User ID.');
+    }
+  }
+
+  if (!targetDocId || !existingData) {
+    throw new Error('Administrator record not found.');
+  }
+
+  // 2. Update only username and updatedAt (preserving passwordHash and all other profile fields)
+  const docRef = doc(db, 'admins', targetDocId);
+  await updateDoc(docRef, {
+    username: cleanUsername,
+    updatedAt: now,
+  });
+
+  // 3. Sync systemSettings/bootstrap so login status and metadata reflect the updated User ID
+  try {
+    const bootRef = doc(db, 'systemSettings', 'bootstrap');
+    await setDoc(
+      bootRef,
+      {
+        adminUsername: cleanUsername,
+        updatedAt: now,
+      },
+      { merge: true }
+    );
+  } catch (err) {
+    console.warn('Could not sync bootstrap adminUsername:', err);
+  }
+
+  // 4. Sync memory cache and local fallback cache
+  if (memoryCache) {
+    memoryCache = {
+      ...memoryCache,
+      adminUsername: cleanUsername,
+    };
+  }
+  const local = readLocalFile();
+  if (local) {
+    local.adminUsername = cleanUsername;
+    syncLocalFile(local);
+  }
+
+  const updatedSnap = await getDoc(docRef);
+  return (updatedSnap.data() as AdminRecord) || {
+    ...existingData,
+    username: cleanUsername,
+    updatedAt: now,
+  };
 }
 
 // Local helper to read/write disk cache as safety net

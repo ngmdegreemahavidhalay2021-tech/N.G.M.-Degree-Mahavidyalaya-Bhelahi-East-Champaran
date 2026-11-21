@@ -137,18 +137,28 @@ export const MarksModule: React.FC<MarksModuleProps> = ({
       setLoading(false);
     };
 
-    const u1 = subscribeToFormEnrollments(activeFormId, (enrs) => {
-      currentEnrs = enrs;
-      setEnrollments(enrs);
-      rebuildInputMap(currentEnrs, currentMarks);
-    });
+    const u1 = subscribeToFormEnrollments(
+      activeFormId,
+      (enrs) => {
+        currentEnrs = enrs;
+        setEnrollments(enrs);
+        rebuildInputMap(currentEnrs, currentMarks);
+      },
+      undefined,
+      (err: any) => console.warn('Form enrollments subscription notice:', err?.message || err)
+    );
     unsubs.push(u1);
 
-    const u2 = subscribeToFormMarks(activeFormId, (mrks) => {
-      currentMarks = mrks;
-      setMarksList(mrks);
-      rebuildInputMap(currentEnrs, currentMarks);
-    });
+    const u2 = subscribeToFormMarks(
+      activeFormId,
+      (mrks) => {
+        currentMarks = mrks;
+        setMarksList(mrks);
+        rebuildInputMap(currentEnrs, currentMarks);
+      },
+      undefined,
+      (err: any) => console.warn('Form marks subscription notice:', err?.message || err)
+    );
     unsubs.push(u2);
 
     return () => unsubs.forEach((u) => u());
@@ -512,7 +522,7 @@ export const MarksModule: React.FC<MarksModuleProps> = ({
       {saveSuccess && (
         <div className="p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-300 text-xs flex items-center gap-2">
           <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
-          <span>Evaluation marks saved and synchronized across both modes in Firestore.</span>
+          <span>Evaluation marks saved and synchronized across both modes.</span>
         </div>
       )}
 

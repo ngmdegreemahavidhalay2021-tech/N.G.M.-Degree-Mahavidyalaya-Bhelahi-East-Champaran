@@ -86,7 +86,7 @@ export const SystemSettingsModule: React.FC<SystemSettingsModuleProps> = ({
         selectedTheme: theme,
       });
       onSettingsChanged(updated);
-      setSuccessMsg('Appearance preferences permanently stored in Firebase Firestore!');
+      setSuccessMsg('Appearance preferences saved successfully!');
       setTimeout(() => setSuccessMsg(null), 4000);
     } catch (err: any) {
       console.error('Error saving settings:', err);
@@ -128,11 +128,11 @@ export const SystemSettingsModule: React.FC<SystemSettingsModuleProps> = ({
             <h1 className="text-xl font-bold text-white tracking-tight">System Appearance & Customization</h1>
             <span className="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-blue-500/10 text-blue-400 border border-blue-500/20 flex items-center gap-1">
               <Database className="w-3 h-3" />
-              <span>systemSettings/appearance</span>
+              <span>Theme & Display</span>
             </span>
           </div>
           <p className="text-xs text-slate-400 mt-1">
-            Personalize display theme, color accents, and typography. Settings are saved permanently in Firestore.
+            Personalize display theme, color accents, and typography across the examination portal.
           </p>
         </div>
 
@@ -153,7 +153,7 @@ export const SystemSettingsModule: React.FC<SystemSettingsModuleProps> = ({
             {saving ? (
               <>
                 <div className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                <span>Saving to Firestore...</span>
+                <span>Saving...</span>
               </>
             ) : (
               <>

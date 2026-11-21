@@ -2626,3 +2626,31 @@ export async function changeAdminPassword(
   }
 }
 
+export async function updateAdminUsername(
+  newUsername: string,
+  token: string
+): Promise<{ success: boolean; profile?: AdminProfile; newToken?: string; message?: string; error?: string }> {
+  try {
+    const res = await fetch('/api/admin/change-username', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({ newUsername }),
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      return { success: false, error: data.error || data.message || 'Failed to update User ID' };
+    }
+    return {
+      success: true,
+      profile: data.profile,
+      newToken: data.newToken,
+      message: data.message,
+    };
+  } catch (err: any) {
+    return { success: false, error: err.message || 'Network error' };
+  }
+}
+

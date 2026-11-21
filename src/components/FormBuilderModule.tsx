@@ -574,7 +574,7 @@ export const FormBuilderModule: React.FC<FormBuilderModuleProps> = ({
         // Validate matching student allocations
         if (allottedStudents.length === 0) {
           const proceed = window.confirm(
-            `Notice: No allotted students currently found in Firestore for selected subject(s) under ${currentPaper?.paperName || 'selected paper'}. Do you still wish to create this form?`
+            `Notice: No allotted students currently found for selected subject(s) under ${currentPaper?.paperName || 'selected paper'}. Do you still wish to create this form?`
           );
           if (!proceed) {
             setLoading(false);
@@ -619,7 +619,7 @@ export const FormBuilderModule: React.FC<FormBuilderModuleProps> = ({
 
       onRefresh();
     } catch (err: any) {
-      setError(err.message || 'Failed to save practical form in Firestore.');
+      setError(err.message || 'Failed to save practical form.');
     } finally {
       setLoading(false);
     }
@@ -798,7 +798,7 @@ export const FormBuilderModule: React.FC<FormBuilderModuleProps> = ({
             </span>
           </div>
           <p className="text-xs text-slate-400 mt-1 max-w-3xl leading-relaxed">
-            Create practical examination evaluation forms linked directly to Academic Sessions, Semesters, Subject Types (MJC/MIC/MDC), Papers, Departments, and Incharges. Pre-allotted students are fetched automatically from Firestore.
+            Create practical examination evaluation forms linked directly to Academic Sessions, Semesters, Subject Types (MJC/MIC/MDC), Papers, Departments, and Incharges. Pre-allotted students are fetched automatically.
           </p>
         </div>
 
@@ -1123,7 +1123,7 @@ export const FormBuilderModule: React.FC<FormBuilderModuleProps> = ({
                     </h3>
                   </div>
                   <p className="text-xs text-slate-400 mt-1">
-                    Select the Academic Session, Semester, Subject Type, Paper, Department, and Subject. Allotted students are automatically retrieved from Firestore.
+                    Select the Academic Session, Semester, Subject Type, Paper, Department, and Subject. Allotted students are automatically retrieved.
                   </p>
                 </div>
 
@@ -1153,7 +1153,7 @@ export const FormBuilderModule: React.FC<FormBuilderModuleProps> = ({
                       <Sparkles className="w-3.5 h-3.5" />
                       <span>Academic & Subject Allocation Matrix</span>
                     </h4>
-                    <span className="text-[11px] text-slate-500 font-medium">Authoritative Firestore Records</span>
+                    <span className="text-[11px] text-slate-500 font-medium">Institutional Records</span>
                   </div>
 
                   <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
@@ -1395,7 +1395,7 @@ export const FormBuilderModule: React.FC<FormBuilderModuleProps> = ({
                       {loadingAllottedStudents ? (
                         <span className="text-[11px] text-slate-500 flex items-center gap-1">
                           <div className="w-3 h-3 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
-                          <span>Searching Firestore...</span>
+                          <span>Searching records...</span>
                         </span>
                       ) : (
                         <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-cyan-500/15 text-cyan-300 border border-cyan-500/30 font-mono">
@@ -1449,7 +1449,7 @@ export const FormBuilderModule: React.FC<FormBuilderModuleProps> = ({
                       <div>
                         <p className="font-bold">No Allocated Students Found For Selected Subjects</p>
                         <p className="text-[11px] text-amber-200/80 mt-0.5">
-                          There are currently no students in Firestore matching Session {selectedSession}, {selectedSemester}, Subjects [{selectedPracticalSubjects.join(', ')}]. Please verify your selections.
+                          There are currently no students matching Session {selectedSession}, {selectedSemester}, Subjects [{selectedPracticalSubjects.join(', ')}]. Please verify your selections.
                         </p>
                       </div>
                     </div>
@@ -1709,7 +1709,7 @@ export const FormBuilderModule: React.FC<FormBuilderModuleProps> = ({
                     {loading ? (
                       <>
                         <div className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                        <span>Saving to Firestore...</span>
+                        <span>Saving...</span>
                       </>
                     ) : (
                       <>
@@ -1780,7 +1780,7 @@ export const FormBuilderModule: React.FC<FormBuilderModuleProps> = ({
                 <div className="flex items-center gap-2">
                   <ShieldAlert className="w-4 h-4 text-blue-400 shrink-0" />
                   <span>
-                    <strong>Authoritative Candidate Enrollment:</strong> Enrolled students are persistently stored in Firestore collection <code>formEnrollments</code>.
+                    <strong>Candidate Enrollment:</strong> Enrolled students are securely linked to this practical examination form.
                   </span>
                 </div>
                 <span className="font-mono font-bold text-amber-400 whitespace-nowrap ml-2">
@@ -1816,7 +1816,7 @@ export const FormBuilderModule: React.FC<FormBuilderModuleProps> = ({
                 {loadingEnrollments ? (
                   <div className="p-8 text-center text-slate-500 text-xs">
                     <div className="w-5 h-5 border-2 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto mb-2" />
-                    <span>Loading candidates from Firestore...</span>
+                    <span>Loading candidates...</span>
                   </div>
                 ) : filteredRosterEnrollments.length === 0 ? (
                   <div className="p-8 text-center text-slate-500 text-xs">

@@ -46,7 +46,7 @@ export const AcademicSessionModule: React.FC = () => {
       },
       (err) => {
         console.warn('Academic sessions real-time error:', err);
-        setErrorMessage('Failed to load academic sessions from Firestore.');
+        setErrorMessage('Failed to load academic sessions.');
         setLoading(false);
       }
     );
@@ -73,7 +73,7 @@ export const AcademicSessionModule: React.FC = () => {
     try {
       setIsSubmitting(true);
       const created = await createAcademicSession(clean);
-      setSuccessMessage(`Academic session "${clean}" created and saved to Firestore!`);
+      setSuccessMessage(`Academic session "${clean}" created and saved successfully!`);
       setNewSessionName('');
       setShowAddModal(false);
     } catch (err: any) {
@@ -108,7 +108,7 @@ export const AcademicSessionModule: React.FC = () => {
     try {
       setIsSubmitting(true);
       await updateAcademicSession(editingSession.id, { sessionName: clean });
-      setSuccessMessage(`Session renamed to "${clean}" successfully in Firestore.`);
+      setSuccessMessage(`Session renamed to "${clean}" successfully.`);
       setEditingSession(null);
     } catch (err: any) {
       setErrorMessage('Failed to rename session.');
@@ -147,7 +147,7 @@ export const AcademicSessionModule: React.FC = () => {
             <h1 className="text-xl font-bold text-white tracking-tight">Academic Session Management</h1>
             <span className="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-blue-500/10 text-blue-400 border border-blue-500/20 flex items-center gap-1">
               <Database className="w-3 h-3" />
-              <span>Authoritative Firestore</span>
+              <span>Active Directory</span>
             </span>
           </div>
           <p className="text-xs text-slate-400 mt-1">
@@ -196,7 +196,7 @@ export const AcademicSessionModule: React.FC = () => {
       {loading ? (
         <div className="p-12 text-center text-slate-500">
           <div className="w-6 h-6 border-2 border-blue-500/30 border-t-blue-500 rounded-full animate-spin mx-auto mb-2" />
-          <p className="text-xs">Loading academic sessions from Firestore...</p>
+          <p className="text-xs">Loading academic sessions...</p>
         </div>
       ) : sessions.length === 0 ? (
         <div className="bg-slate-900 border border-slate-800 rounded-2xl p-12 text-center">
@@ -325,7 +325,7 @@ export const AcademicSessionModule: React.FC = () => {
                   disabled={isSubmitting}
                   className="px-5 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-semibold text-xs shadow-lg shadow-blue-600/30 transition disabled:opacity-50"
                 >
-                  {isSubmitting ? 'Saving to Firestore...' : 'Create Session'}
+                  {isSubmitting ? 'Saving...' : 'Create Session'}
                 </button>
               </div>
             </form>

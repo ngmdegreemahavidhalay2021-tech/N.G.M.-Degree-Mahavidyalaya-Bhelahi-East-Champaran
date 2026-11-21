@@ -18,10 +18,10 @@ import {
   KeyRound,
   LogOut,
   GraduationCap,
-  Sparkles,
   ChevronDown,
   ChevronRight,
   ShieldCheck,
+  ClipboardList,
 } from 'lucide-react';
 
 export type SidebarModuleKey =
@@ -36,6 +36,7 @@ export type SidebarModuleKey =
   | 'marks'
   | 'reports'
   | 'export'
+  | 'memo-sheet'
   | 'settings'
   | 'appearance-settings'
   | 'logs'
@@ -48,7 +49,6 @@ interface SidebarProps {
   collegeName: string;
   adminUsername?: string;
   onLogout: () => void;
-  onSeedDemoData: () => void;
 }
 
 interface MenuGroup {
@@ -108,6 +108,7 @@ const MENU_GROUPS: MenuGroup[] = [
     items: [
       { key: 'reports', label: 'Reports & Analytics', icon: BarChart3 },
       { key: 'export', label: 'Export Center', icon: FileSpreadsheet },
+      { key: 'memo-sheet', label: 'MEMO SHEET', icon: ClipboardList },
     ],
   },
   {
@@ -137,7 +138,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
   collegeName,
   adminUsername = 'Administrator',
   onLogout,
-  onSeedDemoData,
 }) => {
   // Track open state of each group. Default all groups to COLLAPSED (empty object) when initially loaded or refreshed.
   // Never persist state in localStorage or sessionStorage.
@@ -237,21 +237,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
           );
         })}
 
-        {/* Support & Seeding Section */}
-        <div className="pt-2 border-t border-slate-800/80 space-y-1">
-          <div className="px-2.5 py-1 text-[10px] font-bold text-slate-500 uppercase tracking-wider">
-            Quick Actions
-          </div>
-
-          <button
-            onClick={onSeedDemoData}
-            className="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-semibold text-amber-400 hover:bg-amber-500/10 transition-colors text-left cursor-pointer"
-            title="Seed college sample departments, subjects, and students"
-          >
-            <Sparkles className="w-4 h-4 text-amber-400 shrink-0" />
-            <span>Seed College Sample</span>
-          </button>
-        </div>
       </nav>
 
       {/* User Info & Logout Footer */}

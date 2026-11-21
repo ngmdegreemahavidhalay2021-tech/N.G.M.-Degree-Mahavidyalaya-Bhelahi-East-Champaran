@@ -250,6 +250,28 @@
         "updatedAt": { "type": "string" }
       },
       "required": ["id", "paperId", "token", "maxMarks", "minMarks", "status"]
+    },
+    "MemoSheetConfig": {
+      "title": "MemoSheetConfig",
+      "description": "Per-subject practical examination memo sheet header and professor configuration",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "session": { "type": "string" },
+        "semester": { "type": "string" },
+        "category": { "type": "string", "enum": ["MJC", "MIC", "MDC"] },
+        "subject": { "type": "string" },
+        "examYear": { "type": "string" },
+        "examDate": { "type": "string" },
+        "collegeCentre": { "type": "string" },
+        "professor1Name": { "type": "string" },
+        "professor1College": { "type": "string" },
+        "professor2Name": { "type": "string" },
+        "professor2College": { "type": "string" },
+        "columnCount": { "type": "number" },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["id", "session", "semester", "category", "subject"]
     }
   },
   "firestore": {
@@ -308,6 +330,10 @@
     "/examinerAssignments/{assignmentId}": {
       "schema": { "$ref": "#/entities/ExaminerAssignment" },
       "description": "Examiner evaluation assignments"
+    },
+    "/memoSheetConfigs/{configId}": {
+      "schema": { "$ref": "#/entities/MemoSheetConfig" },
+      "description": "Saved memo sheet examination and professor configuration per subject"
     }
   }
 }

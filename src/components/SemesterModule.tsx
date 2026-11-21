@@ -48,7 +48,7 @@ export const SemesterModule: React.FC = () => {
       },
       (err) => {
         console.warn('Real-time semesters error:', err);
-        setErrorMessage('Failed to load semesters from Firestore.');
+        setErrorMessage('Failed to load semesters.');
         setLoading(false);
       }
     );
@@ -74,7 +74,7 @@ export const SemesterModule: React.FC = () => {
     try {
       setIsSubmitting(true);
       await createAcademicSemester(clean, Number(newOrder) || semesters.length + 1);
-      setSuccessMessage(`Semester "${clean}" successfully added to Firestore!`);
+      setSuccessMessage(`Semester "${clean}" added successfully!`);
       setNewSemesterName('');
       setShowAddModal(false);
     } catch (err: any) {
@@ -144,7 +144,7 @@ export const SemesterModule: React.FC = () => {
             <h1 className="text-xl font-bold text-white tracking-tight">Academic Semester Management</h1>
             <span className="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-blue-500/10 text-blue-400 border border-blue-500/20 flex items-center gap-1">
               <Database className="w-3 h-3" />
-              <span>Firestore Collection</span>
+              <span>Term Directory</span>
             </span>
           </div>
           <p className="text-xs text-slate-400 mt-1">
@@ -193,7 +193,7 @@ export const SemesterModule: React.FC = () => {
       {loading ? (
         <div className="p-12 text-center text-slate-500">
           <div className="w-6 h-6 border-2 border-blue-500/30 border-t-blue-500 rounded-full animate-spin mx-auto mb-2" />
-          <p className="text-xs">Loading academic semesters from Firestore...</p>
+          <p className="text-xs">Loading academic semesters...</p>
         </div>
       ) : semesters.length === 0 ? (
         <div className="bg-slate-900 border border-slate-800 rounded-2xl p-12 text-center">
@@ -320,7 +320,7 @@ export const SemesterModule: React.FC = () => {
                   disabled={isSubmitting}
                   className="px-5 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-semibold text-xs shadow-lg shadow-blue-600/30 transition disabled:opacity-50"
                 >
-                  {isSubmitting ? 'Saving to Firestore...' : 'Create Semester'}
+                  {isSubmitting ? 'Saving...' : 'Create Semester'}
                 </button>
               </div>
             </form>

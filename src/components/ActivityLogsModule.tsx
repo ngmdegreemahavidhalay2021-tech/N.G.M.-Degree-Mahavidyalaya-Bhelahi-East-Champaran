@@ -11,10 +11,17 @@ export const ActivityLogsModule: React.FC = () => {
 
   useEffect(() => {
     setLoading(true);
-    const unsubscribe = subscribeToActivityLogs((liveLogs) => {
-      setLogs(liveLogs || []);
-      setLoading(false);
-    });
+    const unsubscribe = subscribeToActivityLogs(
+      (liveLogs) => {
+        setLogs(liveLogs || []);
+        setLoading(false);
+      },
+      150,
+      (err: any) => {
+        console.warn('Activity logs subscription notice:', err?.message || err);
+        setLoading(false);
+      }
+    );
     return () => unsubscribe();
   }, []);
 

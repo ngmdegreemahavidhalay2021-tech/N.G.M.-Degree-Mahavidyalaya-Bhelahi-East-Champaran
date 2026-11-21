@@ -57,7 +57,7 @@ export const PortalLoginPage: React.FC<PortalLoginPageProps> = ({
       const data = await res.json();
 
       if (res.status === 403) {
-        setErrorMessage(data.message || 'Bootstrap credentials retired. Please log in with your permanent administrator account.');
+        setErrorMessage(data.message || 'Please log in with your administrator credentials.');
         return;
       }
 
@@ -149,7 +149,7 @@ export const PortalLoginPage: React.FC<PortalLoginPageProps> = ({
                     required
                     value={username}
                     onChange={(e) => setUsername(e.target.value)}
-                    placeholder="e.g. ngm_principal"
+                    placeholder="Enter username or email"
                     autoComplete="username"
                     className="w-full bg-slate-950/70 border border-slate-700/80 rounded-xl pl-10 pr-4 py-2.5 text-sm text-slate-100 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition"
                   />
@@ -201,7 +201,7 @@ export const PortalLoginPage: React.FC<PortalLoginPageProps> = ({
                 {loading ? (
                   <>
                     <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                    <span>Verifying Authoritative Session...</span>
+                    <span>Signing In...</span>
                   </>
                 ) : (
                   <>
@@ -216,11 +216,11 @@ export const PortalLoginPage: React.FC<PortalLoginPageProps> = ({
             <div className="mt-6 pt-5 border-t border-slate-800/80 space-y-2">
               <div className="flex items-center gap-2 text-[11px] text-slate-400">
                 <Database className="w-3.5 h-3.5 text-cyan-400 shrink-0" />
-                <span>Authoritative Cloud Storage: Firebase Firestore</span>
+                <span>Institutional Examination Records</span>
               </div>
               <div className="flex items-center gap-2 text-[11px] text-slate-400">
                 <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
-                <span>Protected Sessions with Real-Time Security Rules</span>
+                <span>Secure Role-Based Access Control</span>
               </div>
             </div>
           </div>
@@ -228,9 +228,12 @@ export const PortalLoginPage: React.FC<PortalLoginPageProps> = ({
       </main>
 
       {/* Institutional Footer */}
-      <footer className="border-t border-slate-800/80 bg-slate-900/40 px-6 py-4 text-center text-xs text-slate-500">
+      <footer className="border-t border-slate-800/80 bg-slate-900/40 px-6 py-4 text-center text-xs text-slate-500 space-y-1">
         <p>
           © {new Date().getFullYear()} {collegeName}. Practical Examination Marks Management ERP. All rights reserved.
+        </p>
+        <p className="text-[11px] text-slate-400">
+          Design and Developed by Abhinav Singh
         </p>
       </footer>
     </div>

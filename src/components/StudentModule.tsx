@@ -193,21 +193,27 @@ export const StudentModule: React.FC<StudentModuleProps> = ({
   useEffect(() => {
     const unsubs: Array<() => void> = [];
 
-    const u1 = subscribeToAcademicSessions((sessList) => {
-      setSessions(sessList);
-      if (sessList.length > 0) {
-        setSelectedSession((curr) => {
-          if (curr && sessList.some((s) => s.sessionName === curr)) return curr;
-          const has2025 = sessList.find((s) => s.sessionName === '2025-29');
-          return has2025 ? '2025-29' : sessList[0].sessionName;
-        });
-      }
-    });
+    const u1 = subscribeToAcademicSessions(
+      (sessList) => {
+        setSessions(sessList);
+        if (sessList.length > 0) {
+          setSelectedSession((curr) => {
+            if (curr && sessList.some((s) => s.sessionName === curr)) return curr;
+            const has2025 = sessList.find((s) => s.sessionName === '2025-29');
+            return has2025 ? '2025-29' : sessList[0].sessionName;
+          });
+        }
+      },
+      (err: any) => console.warn('Academic sessions subscription notice:', err?.message || err)
+    );
     unsubs.push(u1);
 
-    const u2 = subscribeToPracticalSubjects((subjList) => {
-      setPracticalSubjects(subjList);
-    });
+    const u2 = subscribeToPracticalSubjects(
+      (subjList) => {
+        setPracticalSubjects(subjList);
+      },
+      (err: any) => console.warn('Practical subjects subscription notice:', err?.message || err)
+    );
     unsubs.push(u2);
 
     return () => unsubs.forEach((u) => u());
@@ -240,7 +246,11 @@ export const StudentModule: React.FC<StudentModuleProps> = ({
       },
       selectedSession,
       selectedSemester,
-      selectedSubjectType
+      selectedSubjectType,
+      (err: any) => {
+        console.warn('Academic papers subscription notice:', err?.message || err);
+        setLoadingPapers(false);
+      }
     );
 
     return () => uPaper();
@@ -1510,7 +1520,7 @@ export const StudentModule: React.FC<StudentModuleProps> = ({
             {/* Modal Actions */}
             <div className="flex items-center justify-between pt-4 mt-4 border-t border-slate-800">
               <span className="text-xs text-slate-500">
-                Data will be securely grouped and saved to Firebase Firestore.
+                Data will be securely grouped and saved to the student directory.
               </span>
               <div className="flex items-center gap-2">
                 <button
@@ -1526,7 +1536,7 @@ export const StudentModule: React.FC<StudentModuleProps> = ({
                   disabled={savingUpload || parsedRows.length === 0}
                   className="px-5 py-2 rounded-xl text-xs font-bold bg-emerald-600 hover:bg-emerald-500 text-white shadow-md shadow-emerald-600/25 disabled:opacity-50 transition-all"
                 >
-                  {savingUpload ? 'Saving to Firestore...' : 'Confirm & Import to ' + activeUploadPaper.paperName}
+                  {savingUpload ? 'Saving...' : 'Confirm & Import to ' + activeUploadPaper.paperName}
                 </button>
               </div>
             </div>

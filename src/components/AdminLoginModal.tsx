@@ -103,7 +103,7 @@ export const AdminLoginModal: React.FC<AdminLoginModalProps> = ({
           <div className="mb-5 p-3.5 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-200 text-xs">
             <div className="flex items-center justify-between mb-1">
               <span className="font-semibold text-amber-300 flex items-center gap-1.5">
-                <Sparkles className="w-3.5 h-3.5" /> Initial Admin Bootstrap
+                <Sparkles className="w-3.5 h-3.5" /> Initial Administrator Setup
               </span>
               <button
                 type="button"
@@ -114,7 +114,7 @@ export const AdminLoginModal: React.FC<AdminLoginModalProps> = ({
               </button>
             </div>
             <p className="text-slate-300">
-              The system is in initial setup mode. Use the temporary credentials to proceed to the First-Time Admin Setup page:
+              Use the temporary credentials below to proceed to administrator account setup:
             </p>
             <div className="mt-2 flex items-center gap-2 font-mono text-[11px] bg-slate-950/60 p-2 rounded border border-slate-800">
               <span>Username: <strong className="text-amber-300">ADMIN</strong></span>
@@ -125,7 +125,7 @@ export const AdminLoginModal: React.FC<AdminLoginModalProps> = ({
         ) : (
           <div className="mb-5 p-3 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-emerald-300 text-xs flex items-center gap-2">
             <CheckCircle className="w-4 h-4 shrink-0 text-emerald-400" />
-            <span>Permanent administrator account active. Sign in with your configured credentials.</span>
+            <span>Sign in with your administrator credentials.</span>
           </div>
         )}
 

@@ -107,7 +107,7 @@ export const Navbar: React.FC<NavbarProps> = ({
               <div className="flex items-center gap-2">
                 <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-xs font-medium bg-amber-500/10 text-amber-300 border border-amber-500/20">
                   <Lock className="w-3 h-3" />
-                  {bootstrapStatus?.isBootstrapped ? 'Staff / Examiner Mode' : 'Initial Bootstrap Mode'}
+                  {bootstrapStatus?.isBootstrapped ? 'Staff / Examiner Mode' : 'Initial Setup Mode'}
                 </span>
               </div>
             )}

@@ -14,6 +14,7 @@ import {
   updateAdminPasswordServer,
   getAdminByIdServer,
   updateAdminProfileServer,
+  updateAdminUsernameServer,
 } from './firestoreServer.ts';
 
 export const apiRouter = express.Router();
@@ -72,8 +73,8 @@ apiRouter.get(['/bootstrap/status', '/api/bootstrap/status'], async (_req: Reque
   } catch (err: any) {
     console.error('Error fetching bootstrap status:', err);
     res.status(500).json({
-      error: 'Failed to verify bootstrap status',
-      message: err.message || 'Firestore query failed',
+      error: 'Unable to verify system status',
+      message: 'Service temporarily unavailable. Please try again.',
     });
   }
 });
@@ -322,8 +323,8 @@ async function handleLogin(req: Request, res: Response): Promise<any> {
     // Case 2: System IS bootstrapped -> Verify permanent admin credentials
     if (inputUser.toUpperCase() === 'ADMIN' && inputPass === '123') {
       return res.status(403).json({
-        error: 'Bootstrap credentials retired',
-        message: 'The initial temporary ADMIN credentials have been permanently disabled. Please log in with your configured Admin username and password.',
+        error: 'Invalid credentials',
+        message: 'Please log in with your configured administrator username and password.',
       });
     }
 
@@ -388,7 +389,7 @@ apiRouter.post(['/auth/verify-session', '/api/auth/verify-session'], async (req:
     }
 
     const status = await getBootstrapStatusServer();
-    const admin = await getAdminByLoginServer(payload.username || payload.uid);
+    const admin = (await getAdminByIdServer(payload.uid)) || (await getAdminByLoginServer(payload.username || payload.uid));
 
     return res.json({
       valid: true,
@@ -440,7 +441,7 @@ apiRouter.post(['/auth/request-recovery', '/api/auth/request-recovery'], async (
     if (!admin || admin.email.toLowerCase() !== String(recoveryEmail).trim().toLowerCase()) {
       return res.status(404).json({
         error: 'Admin not found',
-        message: 'The username and recovery email combination does not match the registered administrator record in Firestore.',
+        message: 'The username and recovery email combination does not match our administrator records.',
       });
     }
 
@@ -602,7 +603,7 @@ apiRouter.put(['/admin/profile', '/api/admin/profile'], async (req: Request, res
 
     return res.json({
       success: true,
-      message: 'Administrator profile updated successfully in Firestore.',
+      message: 'Administrator profile updated successfully.',
       profile: {
         uid: updated.uid,
         username: updated.username,
@@ -619,6 +620,70 @@ apiRouter.put(['/admin/profile', '/api/admin/profile'], async (req: Request, res
   } catch (err: any) {
     console.error('Update admin profile error:', err);
     return res.status(500).json({ error: 'Failed to update profile', message: err.message });
+  }
+});
+
+/**
+ * POST /api/admin/change-username
+ * Validates uniqueness and updates Administrator User ID (username)
+ */
+apiRouter.post(['/admin/change-username', '/api/admin/change-username'], async (req: Request, res: Response): Promise<any> => {
+  try {
+    const session = extractAdminSession(req);
+    if (!session) {
+      return res.status(401).json({ error: 'Unauthorized', message: 'Valid administrator session is required.' });
+    }
+
+    const { newUsername } = req.body || {};
+    if (!newUsername || typeof newUsername !== 'string') {
+      return res.status(400).json({ error: 'New User ID is required.' });
+    }
+
+    const clean = newUsername.trim();
+    if (clean.length < 3) {
+      return res.status(400).json({ error: 'User ID must be at least 3 characters long.' });
+    }
+
+    if (!/^[a-zA-Z0-9_\-\.]+$/.test(clean)) {
+      return res.status(400).json({ error: 'User ID may only contain letters, numbers, hyphens, and underscores.' });
+    }
+
+    if (clean.toUpperCase() === 'ADMIN') {
+      return res.status(400).json({ error: 'User ID "ADMIN" is reserved.' });
+    }
+
+    const updated = await updateAdminUsernameServer(session.uid, clean);
+
+    const newToken = createSessionToken({
+      uid: updated.uid,
+      username: updated.username,
+      email: updated.email,
+      role: 'admin',
+      fullName: updated.fullName || updated.username,
+    });
+
+    logAudit('ADMIN_USERNAME_UPDATED', clean, `Administrator User ID changed from "${session.username}" to "${clean}".`);
+
+    return res.json({
+      success: true,
+      message: `User ID updated successfully to "${clean}".`,
+      newToken,
+      profile: {
+        uid: updated.uid,
+        username: updated.username,
+        email: updated.email,
+        fullName: updated.fullName,
+        phone: updated.phone || '',
+        designation: updated.designation || '',
+        photoUrl: updated.photoUrl || '',
+        role: updated.role,
+        institutionName: updated.institutionName,
+        updatedAt: updated.updatedAt,
+      },
+    });
+  } catch (err: any) {
+    console.error('Change username error:', err);
+    return res.status(400).json({ error: err.message || 'Failed to update User ID' });
   }
 });
 
@@ -665,7 +730,7 @@ apiRouter.post(['/admin/change-password', '/api/admin/change-password'], async (
 
     return res.json({
       success: true,
-      message: 'Password changed successfully. Your new password has been securely stored in Firestore.',
+      message: 'Password changed successfully.',
     });
   } catch (err: any) {
     console.error('Change password error:', err);
