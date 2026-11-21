@@ -512,6 +512,76 @@ export async function updateAdminUsernameServer(
   };
 }
 
+/**
+ * Unlocks a finally-submitted PracticalForm in Firestore on verified Administrator action,
+ * preserving all submitted marks and appending to unlockHistory.
+ */
+export async function unlockPracticalFormMarksServer(
+  formId: string,
+  admin: { uid: string; username: string; reason?: string }
+): Promise<{ form: any; unlockEntry: any }> {
+  const db = getDb();
+  const formRef = doc(db, 'practicalForms', formId);
+  const snap = await getDoc(formRef);
+
+  if (!snap.exists()) {
+    throw new Error('Practical examination form not found.');
+  }
+
+  const existing = snap.data() as any;
+  const now = new Date().toISOString();
+  const existingHistory = Array.isArray(existing.unlockHistory) ? existing.unlockHistory : [];
+
+  const unlockEntry: Record<string, any> = {
+    unlockedBy: admin.username,
+    unlockedByUid: admin.uid,
+    unlockedAt: now,
+  };
+  if (existing.finalSubmittedAt) {
+    unlockEntry.previousSubmittedAt = existing.finalSubmittedAt;
+  }
+  if (existing.finalSubmittedBy) {
+    unlockEntry.previousSubmittedBy = existing.finalSubmittedBy;
+  }
+  if (admin.reason && admin.reason.trim()) {
+    unlockEntry.reason = admin.reason.trim();
+  }
+
+  const updatedHistory = [...existingHistory, unlockEntry];
+  const updates = {
+    status: 'published',
+    isMarksLocked: false,
+    marksLockStatus: 'unlocked',
+    lastUnlockedAt: now,
+    lastUnlockedBy: admin.username,
+    unlockHistory: updatedHistory,
+    updatedAt: now,
+  };
+
+  await updateDoc(formRef, updates);
+
+  // Record audit trail in activityLogs
+  try {
+    const logId = `log_${Date.now()}_unlock_${Math.random().toString(36).substring(2, 6)}`;
+    await setDoc(doc(db, 'activityLogs', logId), {
+      id: logId,
+      action: 'MARKS_UNLOCKED_BY_ADMIN',
+      entityType: 'PracticalForm',
+      entityId: formId,
+      details: `Administrator ${admin.username} unlocked marks editing for "${existing.title || formId}" (${existing.subjectName || existing.subjectCode || 'Practical'}). Previous marks preserved.`,
+      performedBy: admin.username,
+      timestamp: now,
+    });
+  } catch (err) {
+    console.warn('Could not record marks unlock activity log:', err);
+  }
+
+  return {
+    form: { id: snap.id, ...existing, ...updates },
+    unlockEntry,
+  };
+}
+
 // Local helper to read/write disk cache as safety net
 function readLocalFile(): any {
   try {

@@ -6,6 +6,7 @@ import {
   AlertCircle,
   Clock,
   Lock,
+  Unlock,
   Search,
   FileSpreadsheet,
   Send,
@@ -36,6 +37,8 @@ import {
   getAssignmentMarks,
   saveAssignmentMarks,
   finalSubmitExaminerAssignment,
+  finalSubmitPracticalForm,
+  isPracticalFormMarksLocked,
   getPracticalFormByToken,
   getFormEnrollments,
   getFormMarks,
@@ -192,8 +195,8 @@ export const PublicPracticalForm: React.FC<PublicPracticalFormProps> = ({
         setPracticalForm((prev) => (prev ? { ...prev, ...data } : null));
         if (!data.isActive) {
           setError('This practical examination link has been disabled by College Administration.');
-        } else if (data.status === 'closed') {
-          // Closed by admin
+        } else if (!isPracticalFormMarksLocked(data)) {
+          setSubmittedSuccess(false);
         }
       },
       (err) => {
@@ -202,6 +205,29 @@ export const PublicPracticalForm: React.FC<PublicPracticalFormProps> = ({
     );
     return () => unsub();
   }, [practicalForm?.id]);
+
+  // Live real-time sync for ExaminerAssignment lock/reopen state
+  useEffect(() => {
+    if (!assignment?.id) return;
+    const unsub = onSnapshot(
+      doc(db, 'examinerAssignments', assignment.id),
+      (snap) => {
+        if (!snap.exists()) {
+          setError('This practical examination assignment is no longer available.');
+          return;
+        }
+        const data = snap.data() as ExaminerAssignment;
+        setAssignment((prev) => (prev ? { ...prev, ...data } : null));
+        if (!data.isLocked && data.status !== 'Final Submitted') {
+          setSubmittedSuccess(false);
+        }
+      },
+      (err) => {
+        console.warn('Real-time assignment snapshot notice:', err);
+      }
+    );
+    return () => unsub();
+  }, [assignment?.id]);
 
   // Live real-time sync for marks: reflect imports and changes immediately in In-Charge interface
   useEffect(() => {
@@ -459,7 +485,16 @@ export const PublicPracticalForm: React.FC<PublicPracticalFormProps> = ({
     }
   };
 
-  const isLocked = assignment?.isLocked || practicalForm?.status === 'closed';
+  const isLocked = Boolean(
+    assignment?.isLocked ||
+      assignment?.status === 'Final Submitted' ||
+      isPracticalFormMarksLocked(practicalForm)
+  );
+  const isAdminUnlocked = Boolean(
+    !isLocked &&
+      ((practicalForm && practicalForm.marksLockStatus === 'unlocked') ||
+        (assignment && assignment.reopenedAt))
+  );
   const maxMarks = assignment ? assignment.maxMarks : practicalForm?.maxMarks || 50;
   const minMarks = assignment ? assignment.minMarks : practicalForm?.minPassingMarks ?? Math.round(maxMarks * 0.33);
   const allowDecimals = assignment ? assignment.allowDecimals : practicalForm?.allowDecimals ?? false;
@@ -626,11 +661,30 @@ export const PublicPracticalForm: React.FC<PublicPracticalFormProps> = ({
 
     try {
       setSubmitting(true);
+      if (autoSaveTimerRef.current) {
+        clearTimeout(autoSaveTimerRef.current);
+        autoSaveTimerRef.current = null;
+      }
+
       await handleSaveDraftToFirestore();
 
       if (assignment) {
-        await finalSubmitExaminerAssignment(assignment.id, inchargeDisplayName);
+        await finalSubmitExaminerAssignment(assignment.id, inchargeDisplayName || 'Examiner');
         setAssignment((prev) => (prev ? { ...prev, isLocked: true, status: 'Final Submitted' } : null));
+      } else if (practicalForm) {
+        const res = await finalSubmitPracticalForm(practicalForm.id, inchargeDisplayName || 'Incharge');
+        setPracticalForm((prev) =>
+          prev
+            ? {
+                ...prev,
+                status: 'closed',
+                isMarksLocked: true,
+                marksLockStatus: 'locked',
+                finalSubmittedAt: res.finalSubmittedAt,
+                finalSubmittedBy: res.finalSubmittedBy,
+              }
+            : null
+        );
       }
 
       confetti({
@@ -1117,7 +1171,7 @@ export const PublicPracticalForm: React.FC<PublicPracticalFormProps> = ({
   };
 
   const handleConfirmImport = async () => {
-    if (importStats.validRecords.length === 0) return;
+    if (isLocked || importStats.validRecords.length === 0) return;
 
     try {
       setImportingToDb(true);
@@ -1478,11 +1532,24 @@ export const PublicPracticalForm: React.FC<PublicPracticalFormProps> = ({
           </div>
         </div>
 
-        {submittedSuccess && (
+        {isAdminUnlocked && (
+          <div className="p-4 rounded-xl bg-amber-50 border border-amber-200 text-amber-900 text-xs flex items-center gap-2 shadow-sm">
+            <Unlock className="w-5 h-5 text-amber-600 shrink-0" />
+            <span className="font-semibold">
+              Marks Unlocked by Administration
+              {practicalForm?.lastUnlockedAt
+                ? ` on ${new Date(practicalForm.lastUnlockedAt).toLocaleString()}`
+                : ''}
+              . You may correct marks and click Final Submit &amp; Lock again.
+            </span>
+          </div>
+        )}
+
+        {submittedSuccess && isLocked && (
           <div className="p-4 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs flex items-center gap-2 shadow-sm">
             <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0" />
             <span className="font-semibold">
-              Practical marks for {activeSubject} have been finalized, saved, and submitted successfully!
+              Practical marks for {activeSubject} have been finalized, saved, and locked successfully!
             </span>
           </div>
         )}
@@ -1491,7 +1558,11 @@ export const PublicPracticalForm: React.FC<PublicPracticalFormProps> = ({
           <div className="p-4 rounded-xl bg-rose-50 border border-rose-200 text-rose-800 text-xs flex items-center gap-2">
             <Lock className="w-5 h-5 text-rose-600 shrink-0" />
             <span className="font-semibold">
-              This practical examination has been finalized and locked. Editing is restricted unless authorized by College Administration.
+              This practical examination has been finalized and locked
+              {practicalForm?.finalSubmittedAt
+                ? ` (${new Date(practicalForm.finalSubmittedAt).toLocaleString()})`
+                : ''}
+              . All marks are read-only unless unlocked by College Administration.
             </span>
           </div>
         )}

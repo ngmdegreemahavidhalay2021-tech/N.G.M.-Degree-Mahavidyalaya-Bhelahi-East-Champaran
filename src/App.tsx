@@ -718,6 +718,7 @@ export default function App() {
               forms={forms}
               departments={departments}
               selectedFormId={selectedFormForMarks}
+              admin={admin}
               onRefresh={loadCollegeDatabase}
             />
           )}

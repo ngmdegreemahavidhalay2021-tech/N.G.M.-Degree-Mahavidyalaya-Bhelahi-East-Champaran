@@ -15,6 +15,7 @@ import {
   getAdminByIdServer,
   updateAdminProfileServer,
   updateAdminUsernameServer,
+  unlockPracticalFormMarksServer,
 } from './firestoreServer.ts';
 
 export const apiRouter = express.Router();
@@ -821,3 +822,65 @@ apiRouter.post(['/marks/validate', '/api/marks/validate'], (req: Request, res: R
     minPassingMarks: numMin,
   });
 });
+
+/**
+ * POST /api/admin/forms/:formId/unlock-marks
+ * Strictly authenticated Administrator endpoint to unlock finally-submitted marks for revision.
+ * Preserves existing submitted marks and appends an audit entry to unlockHistory.
+ */
+apiRouter.post(
+  ['/admin/forms/:formId/unlock-marks', '/api/admin/forms/:formId/unlock-marks'],
+  async (req: Request, res: Response): Promise<any> => {
+    try {
+      const session = extractAdminSession(req);
+      if (!session) {
+        return res.status(401).json({
+          error: 'Unauthorized',
+          message: 'Valid administrator authentication is required to unlock marks.',
+        });
+      }
+
+      const admin =
+        (await getAdminByIdServer(session.uid)) ||
+        (await getAdminByLoginServer(session.username));
+      if (!admin || admin.role !== 'admin') {
+        return res.status(403).json({
+          error: 'Forbidden',
+          message: 'Only authorized Administrator accounts can unlock submitted marks.',
+        });
+      }
+
+      const { formId } = req.params;
+      if (!formId || typeof formId !== 'string') {
+        return res.status(400).json({ error: 'Invalid practical form ID.' });
+      }
+
+      const reason = typeof req.body?.reason === 'string' ? req.body.reason : undefined;
+      const { form, unlockEntry } = await unlockPracticalFormMarksServer(formId, {
+        uid: admin.uid,
+        username: admin.username,
+        reason,
+      });
+
+      logAudit(
+        'MARKS_UNLOCKED_BY_ADMIN',
+        admin.username,
+        `Unlocked marks editing for form "${form.title || formId}" (${formId}).`
+      );
+
+      return res.json({
+        success: true,
+        message: 'Marks unlocked successfully for editing.',
+        form,
+        unlockEntry,
+      });
+    } catch (err: any) {
+      const statusCode = err?.message?.includes('not found') ? 404 : 500;
+      console.error('Unlock marks error:', err);
+      return res.status(statusCode).json({
+        error: statusCode === 404 ? 'Form not found' : 'Failed to unlock marks',
+        message: err?.message || 'Unexpected error while unlocking marks',
+      });
+    }
+  }
+);

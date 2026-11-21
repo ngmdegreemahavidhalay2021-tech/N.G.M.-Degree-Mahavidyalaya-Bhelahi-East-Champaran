@@ -16,6 +16,8 @@ import {
   ChevronRight,
   UserCheck,
   SlidersHorizontal,
+  History,
+  X,
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import {
@@ -24,6 +26,7 @@ import {
   MarksRecord,
   Student,
   Department,
+  AdminProfile,
 } from '../types';
 import {
   getFormEnrollments,
@@ -34,6 +37,8 @@ import {
   enrollStudentsInForm,
   removeStudentFromForm,
   updatePracticalForm,
+  unlockFormMarksAsAdmin,
+  isPracticalFormMarksLocked,
   getStudents,
   calculateResultStatus,
   subscribeToFormEnrollments,
@@ -45,6 +50,7 @@ interface MarksModuleProps {
   forms: PracticalForm[];
   departments: Department[];
   selectedFormId?: string;
+  admin?: AdminProfile | null;
   onRefresh: () => void;
 }
 
@@ -52,6 +58,7 @@ export const MarksModule: React.FC<MarksModuleProps> = ({
   forms,
   departments,
   selectedFormId,
+  admin,
   onRefresh,
 }) => {
   const [activeFormId, setActiveFormId] = useState(selectedFormId || forms[0]?.id || '');
@@ -86,7 +93,21 @@ export const MarksModule: React.FC<MarksModuleProps> = ({
   const [enrolSearch, setEnrolSearch] = useState('');
   const [selectedToEnrol, setSelectedToEnrol] = useState<Set<string>>(new Set());
 
+  // Admin Marks Unlock Modal & History state
+  const [unlockTargetForm, setUnlockTargetForm] = useState<PracticalForm | null>(null);
+  const [unlocking, setUnlocking] = useState(false);
+  const [unlockError, setUnlockError] = useState<string | null>(null);
+  const [unlockSuccessMsg, setUnlockSuccessMsg] = useState<string | null>(null);
+  const [showUnlockHistory, setShowUnlockHistory] = useState(false);
+
   const currentForm = forms.find((f) => f.id === activeFormId);
+  const isCurrentFormLocked = isPracticalFormMarksLocked(currentForm);
+  const isCurrentFormUnlocked = Boolean(
+    currentForm && !isCurrentFormLocked && currentForm.marksLockStatus === 'unlocked'
+  );
+  const submittedOrUnlockedForms = forms.filter(
+    (f) => isPracticalFormMarksLocked(f) || f.marksLockStatus === 'unlocked'
+  );
 
   useEffect(() => {
     if (!forms.some((f) => f.id === activeFormId)) {
@@ -166,7 +187,7 @@ export const MarksModule: React.FC<MarksModuleProps> = ({
 
   // Bulk Mark Input Change with validation
   const handleBulkMarkChange = (studentId: string, val: string) => {
-    if (!currentForm) return;
+    if (!currentForm || isCurrentFormLocked) return;
 
     // Check decimal configuration
     if (!currentForm.allowDecimals && val.includes('.')) {
@@ -195,6 +216,7 @@ export const MarksModule: React.FC<MarksModuleProps> = ({
   };
 
   const handleBulkAttendanceToggle = (studentId: string) => {
+    if (isCurrentFormLocked) return;
     setInputMap((prev) => {
       const current = prev[studentId] || { marks: '', isPresent: true, remarks: '' };
       const nextPresent = !current.isPresent;
@@ -211,6 +233,7 @@ export const MarksModule: React.FC<MarksModuleProps> = ({
   };
 
   const handleBulkRemarksChange = (studentId: string, remarks: string) => {
+    if (isCurrentFormLocked) return;
     setInputMap((prev) => ({
       ...prev,
       [studentId]: {
@@ -223,7 +246,7 @@ export const MarksModule: React.FC<MarksModuleProps> = ({
 
   // Save All Bulk Marks
   const handleSaveBulk = async () => {
-    if (!currentForm) return;
+    if (!currentForm || isCurrentFormLocked) return;
 
     try {
       setSaving(true);
@@ -272,7 +295,7 @@ export const MarksModule: React.FC<MarksModuleProps> = ({
   };
 
   const handleSaveIndividual = async () => {
-    if (!currentForm || !selectedIndivStudent) return;
+    if (!currentForm || !selectedIndivStudent || isCurrentFormLocked) return;
 
     const numMarks = indivMarks !== '' ? Number(indivMarks) : null;
 
@@ -330,7 +353,7 @@ export const MarksModule: React.FC<MarksModuleProps> = ({
 
   // Reset All Marks in Form
   const handleResetMarks = async () => {
-    if (!currentForm) return;
+    if (!currentForm || isCurrentFormLocked) return;
     const ok = window.confirm(
       `Reset all marks in "${currentForm.title}"?\nAll entered scores will be cleared. This action cannot be undone.`
     );
@@ -353,6 +376,46 @@ export const MarksModule: React.FC<MarksModuleProps> = ({
       onRefresh();
     } catch (err: any) {
       alert(err.message || 'Failed to update lock state');
+    }
+  };
+
+  // Admin Unlock Submitted Marks Handlers
+  const handleOpenUnlockModal = (form: PracticalForm) => {
+    setActiveFormId(form.id);
+    setUnlockError(null);
+    setUnlockTargetForm(form);
+  };
+
+  const handleConfirmAdminUnlock = async () => {
+    if (!unlockTargetForm) return;
+    const token =
+      typeof window !== 'undefined' ? localStorage.getItem('admin_session_token') : null;
+
+    if (!admin || !token) {
+      setUnlockError('Authenticated Administrator session is required to unlock marks.');
+      return;
+    }
+
+    try {
+      setUnlocking(true);
+      setUnlockError(null);
+      const res = await unlockFormMarksAsAdmin(unlockTargetForm.id, token);
+      if (!res.success) {
+        setUnlockError(res.error || 'Failed to unlock marks editing.');
+        return;
+      }
+
+      const unlockedTitle = unlockTargetForm.title;
+      setUnlockTargetForm(null);
+      setUnlockSuccessMsg(
+        `Marks unlocked for "${unlockedTitle}". Status changed from MARKS LOCKED to MARKS UNLOCKED.`
+      );
+      setTimeout(() => setUnlockSuccessMsg(null), 4500);
+      onRefresh();
+    } catch (err: any) {
+      setUnlockError(err?.message || 'Unexpected error while unlocking marks.');
+    } finally {
+      setUnlocking(false);
     }
   };
 
@@ -433,70 +496,203 @@ export const MarksModule: React.FC<MarksModuleProps> = ({
   return (
     <div className="space-y-6">
       {/* Top Form Selector & Controls */}
-      <div className="bg-slate-900 border border-slate-800 p-5 rounded-2xl shadow-xl flex flex-col lg:flex-row items-start lg:items-center justify-between gap-4">
-        <div className="w-full lg:w-auto">
-          <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">
-            Active Practical Examination Form:
-          </label>
-          <select
-            value={activeFormId}
-            onChange={(e) => setActiveFormId(e.target.value)}
-            className="w-full lg:w-96 px-3 py-2 bg-slate-950 border border-slate-700 rounded-xl text-xs font-semibold text-slate-100 focus:outline-none focus:border-blue-500"
-          >
-            {forms.map((f) => (
-              <option key={f.id} value={f.id}>
-                {f.subjectCode} — {f.title} ({f.status.toUpperCase()})
-              </option>
-            ))}
-          </select>
-        </div>
+      <div className="bg-slate-900 border border-slate-800 p-5 rounded-2xl shadow-xl space-y-4">
+        <div className="flex flex-col lg:flex-row items-start lg:items-center justify-between gap-4">
+          <div className="w-full lg:w-auto">
+            <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">
+              Active Practical Examination Form:
+            </label>
+            <div className="flex flex-wrap items-center gap-2.5">
+              <select
+                value={activeFormId}
+                onChange={(e) => setActiveFormId(e.target.value)}
+                className="w-full sm:w-96 px-3 py-2 bg-slate-950 border border-slate-700 rounded-xl text-xs font-semibold text-slate-100 focus:outline-none focus:border-blue-500"
+              >
+                {forms.map((f) => {
+                  const locked = isPracticalFormMarksLocked(f);
+                  const unlocked = !locked && f.marksLockStatus === 'unlocked';
+                  const statusLabel = locked
+                    ? 'MARKS LOCKED'
+                    : unlocked
+                    ? 'MARKS UNLOCKED'
+                    : f.status.toUpperCase();
+                  return (
+                    <option key={f.id} value={f.id}>
+                      {f.subjectCode} — {f.title} ({statusLabel})
+                    </option>
+                  );
+                })}
+              </select>
 
-        {/* Mode Switcher */}
-        <div className="flex flex-wrap items-center gap-2">
-          <div className="flex bg-slate-950 p-1 rounded-xl border border-slate-800">
-            <button
-              onClick={() => setMode('bulk')}
-              className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
-                mode === 'bulk'
-                  ? 'bg-blue-600 text-white shadow-sm'
-                  : 'text-slate-400 hover:text-slate-200'
-              }`}
-            >
-              Mode B: Bulk Entry
-            </button>
-            <button
-              onClick={() => setMode('individual')}
-              className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
-                mode === 'individual'
-                  ? 'bg-blue-600 text-white shadow-sm'
-                  : 'text-slate-400 hover:text-slate-200'
-              }`}
-            >
-              Mode A: Individual Search
-            </button>
-            <button
-              onClick={handleOpenEnrollmentManager}
-              className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
-                mode === 'enrollment'
-                  ? 'bg-blue-600 text-white shadow-sm'
-                  : 'text-slate-400 hover:text-slate-200'
-              }`}
-            >
-              Student Roster ({enrollments.length})
-            </button>
+              {isCurrentFormLocked && currentForm && (
+                <button
+                  type="button"
+                  onClick={() => handleOpenUnlockModal(currentForm)}
+                  className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-extrabold uppercase tracking-wider bg-rose-500/15 hover:bg-rose-500/25 text-rose-300 border border-rose-500/40 transition-all cursor-pointer shadow-sm"
+                  title="Click to unlock marks editing for this form"
+                >
+                  <Lock className="w-3.5 h-3.5 text-rose-400" />
+                  <span>MARKS LOCKED</span>
+                </button>
+              )}
+
+              {isCurrentFormUnlocked && currentForm && (
+                <span
+                  className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-extrabold uppercase tracking-wider bg-emerald-500/15 text-emerald-300 border border-emerald-500/40 shadow-sm"
+                  title={
+                    currentForm.lastUnlockedBy
+                      ? `Unlocked by ${currentForm.lastUnlockedBy}`
+                      : 'Unlocked by Administrator'
+                  }
+                >
+                  <Unlock className="w-3.5 h-3.5 text-emerald-400" />
+                  <span>MARKS UNLOCKED</span>
+                </span>
+              )}
+
+              {currentForm?.unlockHistory && currentForm.unlockHistory.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setShowUnlockHistory((v) => !v)}
+                  className="inline-flex items-center gap-1.5 px-2.5 py-2 rounded-xl text-[11px] font-semibold bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 transition-colors cursor-pointer"
+                >
+                  <History className="w-3.5 h-3.5 text-amber-400" />
+                  <span>Unlock History ({currentForm.unlockHistory.length})</span>
+                </button>
+              )}
+            </div>
           </div>
 
-          {currentForm && (
-            <button
-              onClick={() => exportSingleFormExcel(currentForm, enrollments, marksList)}
-              className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-300 border border-emerald-500/30 transition-colors"
-              title="Export Form Marksheet to Excel"
-            >
-              <FileSpreadsheet className="w-4 h-4 text-emerald-400" />
-              <span>Export Sheet</span>
-            </button>
-          )}
+          {/* Mode Switcher */}
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="flex bg-slate-950 p-1 rounded-xl border border-slate-800">
+              <button
+                onClick={() => setMode('bulk')}
+                className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
+                  mode === 'bulk'
+                    ? 'bg-blue-600 text-white shadow-sm'
+                    : 'text-slate-400 hover:text-slate-200'
+                }`}
+              >
+                Mode B: Bulk Entry
+              </button>
+              <button
+                onClick={() => setMode('individual')}
+                className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
+                  mode === 'individual'
+                    ? 'bg-blue-600 text-white shadow-sm'
+                    : 'text-slate-400 hover:text-slate-200'
+                }`}
+              >
+                Mode A: Individual Search
+              </button>
+              <button
+                onClick={handleOpenEnrollmentManager}
+                className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
+                  mode === 'enrollment'
+                    ? 'bg-blue-600 text-white shadow-sm'
+                    : 'text-slate-400 hover:text-slate-200'
+                }`}
+              >
+                Student Roster ({enrollments.length})
+              </button>
+            </div>
+
+            {currentForm && (
+              <button
+                onClick={() => exportSingleFormExcel(currentForm, enrollments, marksList)}
+                className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-300 border border-emerald-500/30 transition-colors"
+                title="Export Form Marksheet to Excel"
+              >
+                <FileSpreadsheet className="w-4 h-4 text-emerald-400" />
+                <span>Export Sheet</span>
+              </button>
+            )}
+          </div>
         </div>
+
+        {/* All Finally Submitted / Unlocked Forms Status Strip */}
+        {submittedOrUnlockedForms.length > 0 && (
+          <div className="pt-3 border-t border-slate-800/80 flex flex-wrap items-center gap-2">
+            <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400 mr-1">
+              Submitted Forms Status:
+            </span>
+            {submittedOrUnlockedForms.map((f) => {
+              const locked = isPracticalFormMarksLocked(f);
+              const isSelected = f.id === currentForm?.id;
+              return (
+                <div
+                  key={f.id}
+                  className={`inline-flex items-center gap-2 px-2.5 py-1 rounded-xl border text-xs transition-all ${
+                    isSelected
+                      ? 'bg-slate-800/90 border-slate-600 text-slate-100'
+                      : 'bg-slate-950/70 border-slate-800 text-slate-300'
+                  }`}
+                >
+                  <button
+                    type="button"
+                    onClick={() => setActiveFormId(f.id)}
+                    className="font-medium hover:text-white cursor-pointer truncate max-w-[200px]"
+                    title={f.title}
+                  >
+                    {f.subjectCode} — {f.title}
+                  </button>
+                  {locked ? (
+                    <button
+                      type="button"
+                      onClick={() => handleOpenUnlockModal(f)}
+                      className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-extrabold uppercase tracking-wider bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 border border-rose-500/40 cursor-pointer"
+                      title="Click to unlock marks editing for this form"
+                    >
+                      <Lock className="w-3 h-3" />
+                      <span>MARKS LOCKED</span>
+                    </button>
+                  ) : (
+                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-extrabold uppercase tracking-wider bg-emerald-500/15 text-emerald-300 border border-emerald-500/30">
+                      <Unlock className="w-3 h-3" />
+                      <span>MARKS UNLOCKED</span>
+                    </span>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
+
+        {/* Admin Unlock History Drawer */}
+        {showUnlockHistory && currentForm?.unlockHistory && currentForm.unlockHistory.length > 0 && (
+          <div className="p-3 bg-slate-950 border border-slate-800 rounded-xl space-y-2">
+            <div className="flex items-center justify-between text-xs font-bold text-slate-300">
+              <span className="flex items-center gap-1.5">
+                <History className="w-3.5 h-3.5 text-amber-400" />
+                Admin Unlock History — {currentForm.title}
+              </span>
+              <button
+                type="button"
+                onClick={() => setShowUnlockHistory(false)}
+                className="text-slate-500 hover:text-slate-300 cursor-pointer"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            </div>
+            <div className="space-y-1.5 max-h-40 overflow-y-auto">
+              {[...currentForm.unlockHistory].reverse().map((entry, idx) => (
+                <div
+                  key={`${entry.unlockedAt}_${idx}`}
+                  className="text-[11px] text-slate-400 bg-slate-900/70 px-3 py-1.5 rounded-lg border border-slate-800/80 flex flex-wrap items-center justify-between gap-2"
+                >
+                  <span>
+                    Unlocked by <strong className="text-slate-200">{entry.unlockedBy}</strong>
+                    {entry.previousSubmittedBy ? ` (previously submitted by ${entry.previousSubmittedBy})` : ''}
+                  </span>
+                  <span className="font-mono text-slate-500">
+                    {new Date(entry.unlockedAt).toLocaleString()}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Summary Statistics Strip */}
@@ -518,6 +714,36 @@ export const MarksModule: React.FC<MarksModuleProps> = ({
           <strong className="text-base font-bold text-amber-300 font-mono">{pendingCount}</strong>
         </div>
       </div>
+
+      {unlockSuccessMsg && (
+        <div className="p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-300 text-xs flex items-center gap-2">
+          <Unlock className="w-4 h-4 text-emerald-400 shrink-0" />
+          <span>{unlockSuccessMsg}</span>
+        </div>
+      )}
+
+      {isCurrentFormLocked && currentForm && (
+        <div className="p-3.5 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-200 text-xs flex flex-wrap items-center justify-between gap-3">
+          <div className="flex items-center gap-2">
+            <Lock className="w-4 h-4 text-rose-400 shrink-0" />
+            <span>
+              <strong>MARKS LOCKED</strong>
+              {currentForm.finalSubmittedBy ? ` — Final submitted by ${currentForm.finalSubmittedBy}` : ''}
+              {currentForm.finalSubmittedAt
+                ? ` on ${new Date(currentForm.finalSubmittedAt).toLocaleString()}`
+                : ''}
+              . Marks editing is locked until unlocked by Admin.
+            </span>
+          </div>
+          <button
+            type="button"
+            onClick={() => handleOpenUnlockModal(currentForm)}
+            className="px-3 py-1 rounded-lg text-[11px] font-bold bg-rose-600 hover:bg-rose-500 text-white transition-colors cursor-pointer"
+          >
+            Click to Unlock
+          </button>
+        </div>
+      )}
 
       {saveSuccess && (
         <div className="p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-300 text-xs flex items-center gap-2">
@@ -561,8 +787,8 @@ export const MarksModule: React.FC<MarksModuleProps> = ({
 
               <button
                 onClick={handleSaveBulk}
-                disabled={saving}
-                className={`inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-semibold text-white shadow-lg transition-all ${
+                disabled={saving || isCurrentFormLocked}
+                className={`inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-semibold text-white shadow-lg transition-all disabled:opacity-40 disabled:cursor-not-allowed ${
                   hasUnsavedChanges
                     ? 'bg-amber-600 hover:bg-amber-500 shadow-amber-600/25 animate-pulse'
                     : 'bg-blue-600 hover:bg-blue-500 shadow-blue-600/25'
@@ -574,7 +800,8 @@ export const MarksModule: React.FC<MarksModuleProps> = ({
 
               <button
                 onClick={handleResetMarks}
-                className="p-2 text-slate-400 hover:text-rose-400 rounded-xl hover:bg-rose-500/10 border border-slate-800"
+                disabled={isCurrentFormLocked}
+                className="p-2 text-slate-400 hover:text-rose-400 rounded-xl hover:bg-rose-500/10 border border-slate-800 disabled:opacity-40 disabled:cursor-not-allowed"
                 title="Reset all marks in this form"
               >
                 <RotateCcw className="w-4 h-4" />
@@ -637,8 +864,9 @@ export const MarksModule: React.FC<MarksModuleProps> = ({
                           <td className="py-2.5 px-3 text-center">
                             <button
                               type="button"
+                              disabled={isCurrentFormLocked}
                               onClick={() => handleBulkAttendanceToggle(enr.studentId)}
-                              className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase transition-all ${
+                              className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase transition-all disabled:opacity-60 disabled:cursor-not-allowed ${
                                 isPresent
                                   ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
                                   : 'bg-rose-500/20 text-rose-300 border border-rose-500/30'
@@ -660,10 +888,11 @@ export const MarksModule: React.FC<MarksModuleProps> = ({
                                 step={currentForm?.allowDecimals ? '0.1' : '1'}
                                 min={0}
                                 max={currentForm?.maxMarks}
+                                disabled={isCurrentFormLocked}
                                 value={input.marks}
                                 onChange={(e) => handleBulkMarkChange(enr.studentId, e.target.value)}
                                 placeholder="Empty"
-                                className="w-24 py-1 px-2 text-center font-mono text-xs bg-slate-950 border border-slate-700 rounded-lg text-slate-100 focus:outline-none focus:border-blue-500"
+                                className="w-24 py-1 px-2 text-center font-mono text-xs bg-slate-950 border border-slate-700 rounded-lg text-slate-100 focus:outline-none focus:border-blue-500 disabled:opacity-60 disabled:cursor-not-allowed"
                               />
                             ) : (
                               <span className="font-mono text-rose-400 font-semibold text-xs">
@@ -693,10 +922,11 @@ export const MarksModule: React.FC<MarksModuleProps> = ({
                           <td className="py-2.5 px-3">
                             <input
                               type="text"
+                              disabled={isCurrentFormLocked}
                               value={input.remarks}
                               onChange={(e) => handleBulkRemarksChange(enr.studentId, e.target.value)}
                               placeholder="Remarks"
-                              className="w-full px-2 py-1 bg-slate-950 border border-slate-800 rounded text-xs text-slate-300 focus:outline-none focus:border-blue-500"
+                              className="w-full px-2 py-1 bg-slate-950 border border-slate-800 rounded text-xs text-slate-300 focus:outline-none focus:border-blue-500 disabled:opacity-60 disabled:cursor-not-allowed"
                             />
                           </td>
                         </tr>
@@ -825,8 +1055,9 @@ export const MarksModule: React.FC<MarksModuleProps> = ({
                     <div className="flex items-center gap-3">
                       <button
                         type="button"
+                        disabled={isCurrentFormLocked}
                         onClick={() => setIndivPresent(true)}
-                        className={`px-4 py-2 rounded-xl text-xs font-bold transition-all ${
+                        className={`px-4 py-2 rounded-xl text-xs font-bold transition-all disabled:opacity-60 disabled:cursor-not-allowed ${
                           indivPresent
                             ? 'bg-emerald-600 text-white shadow-md shadow-emerald-600/30'
                             : 'bg-slate-950 border border-slate-700 text-slate-400'
@@ -836,8 +1067,9 @@ export const MarksModule: React.FC<MarksModuleProps> = ({
                       </button>
                       <button
                         type="button"
+                        disabled={isCurrentFormLocked}
                         onClick={() => setIndivPresent(false)}
-                        className={`px-4 py-2 rounded-xl text-xs font-bold transition-all ${
+                        className={`px-4 py-2 rounded-xl text-xs font-bold transition-all disabled:opacity-60 disabled:cursor-not-allowed ${
                           !indivPresent
                             ? 'bg-rose-600 text-white shadow-md shadow-rose-600/30'
                             : 'bg-slate-950 border border-slate-700 text-slate-400'
@@ -860,10 +1092,11 @@ export const MarksModule: React.FC<MarksModuleProps> = ({
                             step={currentForm?.allowDecimals ? '0.1' : '1'}
                             min={0}
                             max={currentForm?.maxMarks}
+                            disabled={isCurrentFormLocked}
                             value={indivMarks}
                             onChange={(e) => setIndivMarks(e.target.value)}
                             placeholder="Enter Marks"
-                            className="w-48 py-2 px-3 text-lg font-mono font-bold bg-slate-900 border border-slate-700 rounded-xl text-slate-100 focus:outline-none focus:border-blue-500 text-center"
+                            className="w-48 py-2 px-3 text-lg font-mono font-bold bg-slate-900 border border-slate-700 rounded-xl text-slate-100 focus:outline-none focus:border-blue-500 text-center disabled:opacity-60 disabled:cursor-not-allowed"
                           />
                         </div>
 
@@ -915,10 +1148,11 @@ export const MarksModule: React.FC<MarksModuleProps> = ({
                     </label>
                     <input
                       type="text"
+                      disabled={isCurrentFormLocked}
                       value={indivRemarks}
                       onChange={(e) => setIndivRemarks(e.target.value)}
                       placeholder="e.g. Completed viva, neat record"
-                      className="w-full py-2 px-3 bg-slate-950 border border-slate-700 rounded-xl text-xs text-slate-200 focus:outline-none focus:border-blue-500"
+                      className="w-full py-2 px-3 bg-slate-950 border border-slate-700 rounded-xl text-xs text-slate-200 focus:outline-none focus:border-blue-500 disabled:opacity-60 disabled:cursor-not-allowed"
                     />
                   </div>
                 </div>
@@ -926,8 +1160,8 @@ export const MarksModule: React.FC<MarksModuleProps> = ({
                 <div className="pt-4 border-t border-slate-800 flex justify-end">
                   <button
                     onClick={handleSaveIndividual}
-                    disabled={saving}
-                    className="inline-flex items-center gap-2 px-6 py-2.5 rounded-xl text-xs font-semibold bg-blue-600 hover:bg-blue-500 text-white shadow-lg shadow-blue-600/25 disabled:opacity-50 transition-all"
+                    disabled={saving || isCurrentFormLocked}
+                    className="inline-flex items-center gap-2 px-6 py-2.5 rounded-xl text-xs font-semibold bg-blue-600 hover:bg-blue-500 text-white shadow-lg shadow-blue-600/25 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
                   >
                     <Save className="w-4 h-4" />
                     <span>{saving ? 'Saving...' : 'Save Student Marks'}</span>
@@ -1054,6 +1288,85 @@ export const MarksModule: React.FC<MarksModuleProps> = ({
                   })}
               </tbody>
             </table>
+          </div>
+        </div>
+      )}
+
+      {/* ADMIN UNLOCK CONFIRMATION MODAL */}
+      {unlockTargetForm && (
+        <div className="fixed inset-0 bg-slate-950/75 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-slate-900 border border-slate-700 rounded-2xl max-w-md w-full shadow-2xl overflow-hidden">
+            <div className="p-5 border-b border-slate-800 flex items-center justify-between">
+              <div className="flex items-center gap-2.5">
+                <div className="w-9 h-9 rounded-xl bg-rose-500/15 border border-rose-500/30 flex items-center justify-center">
+                  <Unlock className="w-5 h-5 text-rose-400" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold text-slate-100">Unlock Marks Editing</h3>
+                  <p className="text-[11px] text-slate-400">Administrator Authorization Required</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                disabled={unlocking}
+                onClick={() => setUnlockTargetForm(null)}
+                className="p-1.5 rounded-lg text-slate-400 hover:text-slate-200 hover:bg-slate-800 cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="p-5 space-y-4 text-xs">
+              <p className="text-sm font-semibold text-slate-100 leading-relaxed">
+                Are you sure you want to unlock marks editing for this form?
+              </p>
+
+              <div className="p-3 bg-slate-950 border border-slate-800 rounded-xl space-y-1 text-[11px] text-slate-400">
+                <div>
+                  Form: <strong className="text-slate-200">{unlockTargetForm.title}</strong>
+                </div>
+                <div>
+                  Subject: <strong className="text-blue-400">{unlockTargetForm.subjectCode} — {unlockTargetForm.subjectName}</strong>
+                </div>
+                {unlockTargetForm.finalSubmittedBy && (
+                  <div>
+                    Final Submitted By: <strong className="text-slate-200">{unlockTargetForm.finalSubmittedBy}</strong>
+                  </div>
+                )}
+              </div>
+
+              <p className="text-[11px] text-slate-400 leading-relaxed">
+                Unlocking will change status from <strong className="text-rose-300">MARKS LOCKED</strong> to{' '}
+                <strong className="text-emerald-300">MARKS UNLOCKED</strong>, allow Staff to edit and re-submit marks, preserve all existing marks records, and log this action in Admin Unlock History.
+              </p>
+
+              {unlockError && (
+                <div className="p-3 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-300 text-xs flex items-center gap-2">
+                  <AlertCircle className="w-4 h-4 shrink-0" />
+                  <span>{unlockError}</span>
+                </div>
+              )}
+            </div>
+
+            <div className="p-4 border-t border-slate-800 bg-slate-950/60 flex items-center justify-end gap-2.5">
+              <button
+                type="button"
+                disabled={unlocking}
+                onClick={() => setUnlockTargetForm(null)}
+                className="px-4 py-2 rounded-xl text-xs font-bold bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 transition-colors cursor-pointer disabled:opacity-50"
+              >
+                CANCEL
+              </button>
+              <button
+                type="button"
+                disabled={unlocking}
+                onClick={handleConfirmAdminUnlock}
+                className="inline-flex items-center gap-1.5 px-5 py-2 rounded-xl text-xs font-bold bg-rose-600 hover:bg-rose-500 text-white shadow-lg shadow-rose-600/25 transition-colors cursor-pointer disabled:opacity-50"
+              >
+                <Unlock className="w-3.5 h-3.5" />
+                <span>{unlocking ? 'UNLOCKING...' : 'UNLOCK'}</span>
+              </button>
+            </div>
           </div>
         </div>
       )}

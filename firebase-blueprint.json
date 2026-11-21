@@ -71,6 +71,13 @@
         "status": { "type": "string", "enum": ["draft", "published", "closed"] },
         "isActive": { "type": "boolean" },
         "isStudentListLocked": { "type": "boolean" },
+        "isMarksLocked": { "type": "boolean" },
+        "marksLockStatus": { "type": "string", "enum": ["open", "locked", "unlocked"] },
+        "finalSubmittedAt": { "type": "string" },
+        "finalSubmittedBy": { "type": "string" },
+        "lastUnlockedAt": { "type": "string" },
+        "lastUnlockedBy": { "type": "string" },
+        "unlockHistory": { "type": "array" },
         "createdAt": { "type": "string" },
         "updatedAt": { "type": "string" }
       },

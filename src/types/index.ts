@@ -163,6 +163,15 @@ export interface PracticalFormSubjectAssignment {
   addedAt: string;
 }
 
+export interface MarksUnlockHistoryEntry {
+  unlockedBy: string;
+  unlockedByUid?: string;
+  unlockedAt: string;
+  previousSubmittedAt?: string;
+  previousSubmittedBy?: string;
+  reason?: string;
+}
+
 export interface PracticalForm {
   id: string;
   title: string;
@@ -195,6 +204,13 @@ export interface PracticalForm {
   status: FormStatus;
   isActive: boolean;
   isStudentListLocked: boolean;
+  isMarksLocked?: boolean;
+  marksLockStatus?: 'open' | 'locked' | 'unlocked';
+  finalSubmittedAt?: string;
+  finalSubmittedBy?: string;
+  lastUnlockedAt?: string;
+  lastUnlockedBy?: string;
+  unlockHistory?: MarksUnlockHistoryEntry[];
   createdAt: string;
   updatedAt: string;
 }

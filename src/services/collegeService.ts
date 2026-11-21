@@ -443,14 +443,136 @@ export async function createPracticalForm(
   }
 }
 
+export function isPracticalFormMarksLocked(form: Partial<PracticalForm> | null | undefined): boolean {
+  if (!form) return false;
+  return Boolean(form.isMarksLocked === true || form.status === 'closed' || form.marksLockStatus === 'locked');
+}
+
+export async function assertPracticalFormMarksUnlocked(practicalFormId: string): Promise<void> {
+  let snap;
+  try {
+    snap = await getDoc(doc(db, 'practicalForms', practicalFormId));
+  } catch (err) {
+    handleFirestoreError(err, OperationType.GET, `practicalForms/${practicalFormId}`);
+  }
+  if (snap && snap.exists()) {
+    const formData = snap.data() as PracticalForm;
+    if (isPracticalFormMarksLocked(formData)) {
+      throw new Error(
+        'Marks are permanently locked after final submission. Only an authorized Administrator can unlock marks for editing.'
+      );
+    }
+  }
+}
+
+export async function finalSubmitPracticalForm(
+  formId: string,
+  submittedBy = 'Subject Incharge'
+): Promise<{ finalSubmittedAt: string; finalSubmittedBy: string }> {
+  const formRef = doc(db, 'practicalForms', formId);
+  const now = new Date().toISOString();
+  const cleanSubmitter = (submittedBy || 'Subject Incharge').trim();
+
+  try {
+    const snap = await getDoc(formRef);
+    if (!snap.exists()) {
+      throw new Error('Practical examination form not found.');
+    }
+    const existing = snap.data() as PracticalForm;
+
+    await updateDoc(formRef, {
+      status: 'closed',
+      isMarksLocked: true,
+      marksLockStatus: 'locked',
+      finalSubmittedAt: now,
+      finalSubmittedBy: cleanSubmitter,
+      updatedAt: now,
+    });
+
+    await logActivity(
+      'FORM_FINAL_SUBMITTED',
+      `Final submitted and permanently locked marks for "${existing.title || formId}" (${existing.subjectName || existing.subjectCode || 'Practical'}) by ${cleanSubmitter}`,
+      'PracticalForm',
+      formId,
+      cleanSubmitter
+    );
+
+    return { finalSubmittedAt: now, finalSubmittedBy: cleanSubmitter };
+  } catch (err: any) {
+    if (err?.message === 'Practical examination form not found.') throw err;
+    handleFirestoreError(err, OperationType.UPDATE, `practicalForms/${formId}`);
+  }
+}
+
+export async function unlockFormMarksAsAdmin(
+  formId: string,
+  token: string | null | undefined,
+  reason?: string
+): Promise<{ success: boolean; form?: PracticalForm; unlockEntry?: any; error?: string }> {
+  if (!token) {
+    return {
+      success: false,
+      error: 'Administrator authentication is required to unlock marks.',
+    };
+  }
+
+  try {
+    const res = await fetch(`/api/admin/forms/${encodeURIComponent(formId)}/unlock-marks`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({ reason }),
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      return {
+        success: false,
+        error: data.message || data.error || 'Failed to unlock marks.',
+      };
+    }
+    return {
+      success: true,
+      form: data.form,
+      unlockEntry: data.unlockEntry,
+    };
+  } catch (err: any) {
+    return {
+      success: false,
+      error: err?.message || 'Network error while unlocking marks.',
+    };
+  }
+}
+
 export async function updatePracticalForm(id: string, updates: Partial<PracticalForm>): Promise<void> {
   try {
-    await updateDoc(doc(db, 'practicalForms', id), {
+    const formRef = doc(db, 'practicalForms', id);
+    const attemptsUnlock =
+      updates.isMarksLocked === false ||
+      updates.marksLockStatus === 'unlocked' ||
+      updates.marksLockStatus === 'open' ||
+      (updates.status !== undefined && updates.status !== 'closed');
+
+    if (attemptsUnlock) {
+      const snap = await getDoc(formRef);
+      if (snap.exists()) {
+        const existing = snap.data() as PracticalForm;
+        if (existing.isMarksLocked === true || existing.marksLockStatus === 'locked') {
+          throw new Error(
+            'Unauthorized: Submitted marks are locked and can only be unlocked by an authenticated Administrator.'
+          );
+        }
+      }
+    }
+
+    await updateDoc(formRef, {
       ...updates,
       updatedAt: new Date().toISOString(),
     });
     await logActivity('PRACTICAL_FORM_UPDATED', `Updated practical form ${id}`, 'PracticalForm', id);
-  } catch (err) {
+  } catch (err: any) {
+    if (err?.message?.startsWith('Unauthorized:')) throw err;
     handleFirestoreError(err, OperationType.UPDATE, `practicalForms/${id}`);
   }
 }
@@ -595,11 +717,22 @@ export async function duplicatePracticalForm(id: string): Promise<PracticalForm>
   const existing = await getPracticalFormById(id);
   if (!existing) throw new Error('Original practical form not found');
 
+  const {
+    finalSubmittedAt: _omitSubAt,
+    finalSubmittedBy: _omitSubBy,
+    lastUnlockedAt: _omitUnlAt,
+    lastUnlockedBy: _omitUnlBy,
+    unlockHistory: _omitHist,
+    ...restExisting
+  } = existing;
+
   const newForm = await createPracticalForm({
-    ...existing,
+    ...restExisting,
     title: `${existing.title} (Copy)`,
     status: 'draft',
     isStudentListLocked: false,
+    isMarksLocked: false,
+    marksLockStatus: 'open',
     isActive: true,
   });
 
@@ -1271,6 +1404,8 @@ export async function saveSingleMark(
   record: Omit<MarksRecord, 'id' | 'updatedAt'>,
   subjectName?: string
 ): Promise<void> {
+  await assertPracticalFormMarksUnlocked(record.practicalFormId);
+
   const normSubj = (subjectName || record.subject || '').trim().toUpperCase();
   const sId = record.studentId || (record as any).enrollmentId || record.rollNumber || 'unknown';
   const id = normSubj
@@ -1308,6 +1443,8 @@ export async function saveBulkMarks(
   updatedBy = 'Examiner',
   subjectName?: string
 ): Promise<{ savedCount: number; verified: boolean }> {
+  await assertPracticalFormMarksUnlocked(practicalFormId);
+
   try {
     const batchSize = 400;
     const now = new Date().toISOString();
@@ -2437,6 +2574,21 @@ export async function saveAssignmentMarks(
   }>,
   updatedBy = 'Examiner'
 ): Promise<{ savedCount: number; verified: boolean }> {
+  let liveSnap;
+  try {
+    liveSnap = await getDoc(doc(db, 'examinerAssignments', assignment.id));
+  } catch (err) {
+    handleFirestoreError(err, OperationType.GET, `examinerAssignments/${assignment.id}`);
+  }
+  if (liveSnap && liveSnap.exists()) {
+    const liveData = liveSnap.data() as ExaminerAssignment;
+    if (liveData.isLocked || liveData.status === 'Final Submitted') {
+      throw new Error(
+        'Marks are permanently locked after final submission. Administrator unlock is required before editing.'
+      );
+    }
+  }
+
   try {
     const batch = writeBatch(db);
     const now = new Date().toISOString();
