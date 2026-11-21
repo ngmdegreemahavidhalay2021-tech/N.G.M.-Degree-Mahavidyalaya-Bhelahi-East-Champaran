@@ -41,7 +41,7 @@ const hasAppletConfig = Boolean(
   rawConfig?.projectId && rawConfig.projectId !== 'remixed-project-id'
 );
 
-const firebaseConfig = {
+export const firebaseConfig = {
   projectId:
     (hasAppletConfig ? rawConfig.projectId : undefined) ||
     cleanEnvValue(process.env.FIREBASE_PROJECT_ID, /^[a-z0-9-]+$/) ||
@@ -87,7 +87,7 @@ const firebaseConfig = {
 };
 
 // Initialize server-side Firestore instance with target databaseId
-function getDb() {
+export function getDb() {
   const existingApps = getClientApps();
   const app = existingApps.length > 0 ? existingApps[0] : initClientApp(firebaseConfig);
   return getClientFirestore(app, firebaseConfig.firestoreDatabaseId);

@@ -17,6 +17,33 @@ import {
   updateAdminUsernameServer,
   unlockPracticalFormMarksServer,
 } from './firestoreServer.ts';
+import {
+  getDatabaseUsageMetricsServer,
+  getSessionDeletionPreviewServer,
+  exportSessionBackupServer,
+  executePermanentDeleteServer,
+  getDeletionAuditLogsServer,
+} from './databaseManagementServer.ts';
+import {
+  getSubjectUpdateSystemStateServer,
+  createSubjectServer,
+  updateSubjectServer,
+  deleteSubjectServer,
+  importSubjectsBatchServer,
+  createSessionServer,
+  updateSessionServer,
+  deleteSessionServer,
+  createSemesterServer,
+  updateSemesterServer,
+  deleteSemesterServer,
+  createCategoryServer,
+  updateCategoryServer,
+  deleteCategoryServer,
+  createDepartmentServer,
+  updateDepartmentServer,
+  deleteDepartmentServer,
+  saveSubjectUpdateSystemSettingsServer,
+} from './subjectUpdateSystemServer.ts';
 
 export const apiRouter = express.Router();
 
@@ -884,3 +911,536 @@ apiRouter.post(
     }
   }
 );
+
+/**
+ * Shared verified Permanent Admin guard for Database & Storage Management routes
+ */
+async function requireVerifiedAdmin(req: Request, res: Response) {
+  const session = extractAdminSession(req);
+  if (!session) {
+    res.status(401).json({
+      error: 'Unauthorized',
+      message: 'Valid Permanent Administrator authentication is required.',
+    });
+    return null;
+  }
+
+  const admin =
+    (await getAdminByIdServer(session.uid)) ||
+    (await getAdminByLoginServer(session.username));
+  if (!admin || admin.role !== 'admin') {
+    res.status(403).json({
+      error: 'Forbidden',
+      message: 'Access restricted strictly to Permanent Administrator accounts.',
+    });
+    return null;
+  }
+
+  return admin;
+}
+
+/**
+ * GET /api/admin/database/usage
+ * Returns live Firestore usage metrics, collection breakdown, session summaries, and honest quota/telemetry status.
+ */
+apiRouter.get(
+  ['/admin/database/usage', '/api/admin/database/usage'],
+  async (req: Request, res: Response): Promise<any> => {
+    try {
+      const admin = await requireVerifiedAdmin(req, res);
+      if (!admin) return;
+
+      const metrics = await getDatabaseUsageMetricsServer();
+      return res.json({ success: true, usage: metrics });
+    } catch (err: any) {
+      console.error('Database usage fetch error:', err);
+      return res.status(500).json({
+        error: 'Failed to retrieve database usage metrics',
+        message: err?.message || 'Unexpected server error',
+      });
+    }
+  }
+);
+
+/**
+ * GET /api/admin/database/session/:session/preview
+ * Returns estimated deletion counts & individual record lists strictly scoped to the selected session.
+ */
+apiRouter.get(
+  ['/admin/database/session/:session/preview', '/api/admin/database/session/:session/preview'],
+  async (req: Request, res: Response): Promise<any> => {
+    try {
+      const admin = await requireVerifiedAdmin(req, res);
+      if (!admin) return;
+
+      const sessionName = decodeURIComponent(String(req.params.session || '')).trim();
+      if (!sessionName) {
+        return res.status(400).json({ error: 'Academic session parameter is required.' });
+      }
+
+      const preview = await getSessionDeletionPreviewServer(sessionName);
+      return res.json({ success: true, preview });
+    } catch (err: any) {
+      console.error('Session deletion preview error:', err);
+      return res.status(500).json({
+        error: 'Failed to build session deletion preview',
+        message: err?.message || 'Unexpected server error',
+      });
+    }
+  }
+);
+
+/**
+ * GET /api/admin/database/session/:session/backup
+ * Exports an isolated JSON backup snapshot for the selected session and logs the export.
+ */
+apiRouter.get(
+  ['/admin/database/session/:session/backup', '/api/admin/database/session/:session/backup'],
+  async (req: Request, res: Response): Promise<any> => {
+    try {
+      const admin = await requireVerifiedAdmin(req, res);
+      if (!admin) return;
+
+      const sessionName = decodeURIComponent(String(req.params.session || '')).trim();
+      if (!sessionName) {
+        return res.status(400).json({ error: 'Academic session parameter is required.' });
+      }
+
+      const { backup, auditLogId } = await exportSessionBackupServer(sessionName, {
+        uid: admin.uid,
+        username: admin.username,
+      });
+
+      logAudit(
+        'SESSION_BACKUP_EXPORTED',
+        admin.username,
+        `Exported JSON backup for session ${sessionName} (audit ${auditLogId}).`
+      );
+
+      return res.json({ success: true, backup, auditLogId });
+    } catch (err: any) {
+      console.error('Session backup export error:', err);
+      return res.status(500).json({
+        error: 'Failed to export session backup',
+        message: err?.message || 'Unexpected server error',
+      });
+    }
+  }
+);
+
+/**
+ * POST /api/admin/database/delete
+ * Executes permanent deletion (category, complete_session, or individual record) with strict audit logging.
+ */
+apiRouter.post(
+  ['/admin/database/delete', '/api/admin/database/delete'],
+  async (req: Request, res: Response): Promise<any> => {
+    try {
+      const admin = await requireVerifiedAdmin(req, res);
+      if (!admin) return;
+
+      const body = req.body || {};
+      const mode = body.mode;
+      const sessionName = typeof body.session === 'string' ? body.session.trim() : '';
+
+      if (!sessionName) {
+        return res.status(400).json({ error: 'Academic Session is required.' });
+      }
+      if (mode !== 'category' && mode !== 'complete_session' && mode !== 'individual') {
+        return res.status(400).json({ error: 'Invalid deletion mode specified.' });
+      }
+
+      const result = await executePermanentDeleteServer(
+        {
+          mode,
+          session: sessionName,
+          category: body.category,
+          confirmSessionText: body.confirmSessionText,
+          backupDownloaded: Boolean(body.backupDownloaded),
+          targetCollection: body.targetCollection,
+          targetId: body.targetId,
+        },
+        { uid: admin.uid, username: admin.username }
+      );
+
+      logAudit(
+        'DATABASE_PERMANENT_DELETE',
+        admin.username,
+        `${result.mode}:${result.category} for ${result.session} (${result.deletedCount} deleted, ${result.revokedCount} revoked).`
+      );
+
+      return res.json(result);
+    } catch (err: any) {
+      const msg = err?.message || 'Permanent deletion failed';
+      const statusCode =
+        msg.includes('not found') ? 404 : msg.includes('mismatch') || msg.includes('Invalid') || msg.includes('required') ? 400 : 500;
+      console.error('Permanent deletion error:', err);
+      return res.status(statusCode).json({
+        success: false,
+        error: msg,
+        message: msg,
+      });
+    }
+  }
+);
+
+/**
+ * GET /api/admin/database/audit-logs
+ * Lists immutable database deletion and backup audit logs.
+ */
+apiRouter.get(
+  ['/admin/database/audit-logs', '/api/admin/database/audit-logs'],
+  async (req: Request, res: Response): Promise<any> => {
+    try {
+      const admin = await requireVerifiedAdmin(req, res);
+      if (!admin) return;
+
+      const logs = await getDeletionAuditLogsServer();
+      return res.json({ success: true, logs });
+    } catch (err: any) {
+      console.error('Deletion audit logs fetch error:', err);
+      return res.status(500).json({
+        error: 'Failed to retrieve deletion audit logs',
+        message: err?.message || 'Unexpected server error',
+      });
+    }
+  }
+);
+
+// ============================================================================
+// INDEPENDENT MODULE: SUBJECT UPDATE SYSTEM (ADMIN-ONLY)
+// ============================================================================
+
+apiRouter.get(
+  ['/admin/subject-update-system/state', '/api/admin/subject-update-system/state'],
+  async (req: Request, res: Response): Promise<any> => {
+    try {
+      const admin = await requireVerifiedAdmin(req, res);
+      if (!admin) return;
+
+      const state = await getSubjectUpdateSystemStateServer();
+      return res.json({ success: true, state });
+    } catch (err: any) {
+      console.error('Subject Update System state fetch error:', err);
+      return res.status(500).json({
+        error: 'Failed to load Subject Update System data',
+        message: err?.message || 'Unexpected server error',
+      });
+    }
+  }
+);
+
+apiRouter.post(
+  ['/admin/subject-update-system/subjects', '/api/admin/subject-update-system/subjects'],
+  async (req: Request, res: Response): Promise<any> => {
+    try {
+      const admin = await requireVerifiedAdmin(req, res);
+      if (!admin) return;
+
+      const item = await createSubjectServer(req.body || {}, admin.username);
+      logAudit('SUBJECT_UPDATE_SYSTEM_CREATE', admin.username, `Created subject ${item.subjectCode} (${item.session} · ${item.semester}).`);
+      return res.status(201).json({ success: true, subject: item });
+    } catch (err: any) {
+      const msg = err?.message || 'Failed to create subject';
+      const statusCode = msg.includes('required') || msg.includes('already exists') ? 400 : 500;
+      return res.status(statusCode).json({ error: msg, message: msg });
+    }
+  }
+);
+
+apiRouter.put(
+  ['/admin/subject-update-system/subjects/:id', '/api/admin/subject-update-system/subjects/:id'],
+  async (req: Request, res: Response): Promise<any> => {
+    try {
+      const admin = await requireVerifiedAdmin(req, res);
+      if (!admin) return;
+
+      const id = String(req.params.id || '').trim();
+      const item = await updateSubjectServer(id, req.body || {}, admin.username);
+      logAudit('SUBJECT_UPDATE_SYSTEM_UPDATE', admin.username, `Updated subject ${item.subjectCode} (${id}).`);
+      return res.json({ success: true, subject: item });
+    } catch (err: any) {
+      const msg = err?.message || 'Failed to update subject';
+      const statusCode = msg.includes('not found') ? 404 : msg.includes('empty') || msg.includes('already exists') ? 400 : 500;
+      return res.status(statusCode).json({ error: msg, message: msg });
+    }
+  }
+);
+
+apiRouter.delete(
+  ['/admin/subject-update-system/subjects/:id', '/api/admin/subject-update-system/subjects/:id'],
+  async (req: Request, res: Response): Promise<any> => {
+    try {
+      const admin = await requireVerifiedAdmin(req, res);
+      if (!admin) return;
+
+      const id = String(req.params.id || '').trim();
+      await deleteSubjectServer(id);
+      logAudit('SUBJECT_UPDATE_SYSTEM_DELETE', admin.username, `Deleted subject (${id}).`);
+      return res.json({ success: true });
+    } catch (err: any) {
+      const msg = err?.message || 'Failed to delete subject';
+      const statusCode = msg.includes('not found') ? 404 : 500;
+      return res.status(statusCode).json({ error: msg, message: msg });
+    }
+  }
+);
+
+apiRouter.post(
+  ['/admin/subject-update-system/subjects/import', '/api/admin/subject-update-system/subjects/import'],
+  async (req: Request, res: Response): Promise<any> => {
+    try {
+      const admin = await requireVerifiedAdmin(req, res);
+      if (!admin) return;
+
+      const { rows, duplicateStrategy } = req.body || {};
+      const strategy = duplicateStrategy === 'update' ? 'update' : 'skip';
+      const result = await importSubjectsBatchServer(rows, admin.username, strategy);
+      logAudit(
+        'SUBJECT_UPDATE_SYSTEM_IMPORT',
+        admin.username,
+        `Imported subjects: ${result.createdCount} created, ${result.updatedCount} updated, ${result.skippedCount} skipped.`
+      );
+      return res.json({ success: true, ...result });
+    } catch (err: any) {
+      const msg = err?.message || 'Failed to import subjects';
+      const statusCode = msg.includes('must contain') || msg.includes('limited') ? 400 : 500;
+      return res.status(statusCode).json({ error: msg, message: msg });
+    }
+  }
+);
+
+apiRouter.post(
+  ['/admin/subject-update-system/sessions', '/api/admin/subject-update-system/sessions'],
+  async (req: Request, res: Response): Promise<any> => {
+    try {
+      const admin = await requireVerifiedAdmin(req, res);
+      if (!admin) return;
+
+      const session = await createSessionServer(req.body || {});
+      return res.status(201).json({ success: true, session });
+    } catch (err: any) {
+      const msg = err?.message || 'Failed to create session';
+      const statusCode = msg.includes('required') || msg.includes('already exists') ? 400 : 500;
+      return res.status(statusCode).json({ error: msg, message: msg });
+    }
+  }
+);
+
+apiRouter.put(
+  ['/admin/subject-update-system/sessions/:id', '/api/admin/subject-update-system/sessions/:id'],
+  async (req: Request, res: Response): Promise<any> => {
+    try {
+      const admin = await requireVerifiedAdmin(req, res);
+      if (!admin) return;
+
+      const id = String(req.params.id || '').trim();
+      const session = await updateSessionServer(id, req.body || {});
+      return res.json({ success: true, session });
+    } catch (err: any) {
+      const msg = err?.message || 'Failed to update session';
+      const statusCode = msg.includes('not found') ? 404 : msg.includes('empty') || msg.includes('already exists') ? 400 : 500;
+      return res.status(statusCode).json({ error: msg, message: msg });
+    }
+  }
+);
+
+apiRouter.delete(
+  ['/admin/subject-update-system/sessions/:id', '/api/admin/subject-update-system/sessions/:id'],
+  async (req: Request, res: Response): Promise<any> => {
+    try {
+      const admin = await requireVerifiedAdmin(req, res);
+      if (!admin) return;
+
+      const id = String(req.params.id || '').trim();
+      await deleteSessionServer(id);
+      return res.json({ success: true });
+    } catch (err: any) {
+      const msg = err?.message || 'Failed to delete session';
+      const statusCode = msg.includes('not found') ? 404 : 500;
+      return res.status(statusCode).json({ error: msg, message: msg });
+    }
+  }
+);
+
+apiRouter.post(
+  ['/admin/subject-update-system/semesters', '/api/admin/subject-update-system/semesters'],
+  async (req: Request, res: Response): Promise<any> => {
+    try {
+      const admin = await requireVerifiedAdmin(req, res);
+      if (!admin) return;
+
+      const semester = await createSemesterServer(req.body || {});
+      return res.status(201).json({ success: true, semester });
+    } catch (err: any) {
+      const msg = err?.message || 'Failed to create semester';
+      const statusCode = msg.includes('required') || msg.includes('already exists') ? 400 : 500;
+      return res.status(statusCode).json({ error: msg, message: msg });
+    }
+  }
+);
+
+apiRouter.put(
+  ['/admin/subject-update-system/semesters/:id', '/api/admin/subject-update-system/semesters/:id'],
+  async (req: Request, res: Response): Promise<any> => {
+    try {
+      const admin = await requireVerifiedAdmin(req, res);
+      if (!admin) return;
+
+      const id = String(req.params.id || '').trim();
+      const semester = await updateSemesterServer(id, req.body || {});
+      return res.json({ success: true, semester });
+    } catch (err: any) {
+      const msg = err?.message || 'Failed to update semester';
+      const statusCode = msg.includes('not found') ? 404 : msg.includes('empty') || msg.includes('already exists') ? 400 : 500;
+      return res.status(statusCode).json({ error: msg, message: msg });
+    }
+  }
+);
+
+apiRouter.delete(
+  ['/admin/subject-update-system/semesters/:id', '/api/admin/subject-update-system/semesters/:id'],
+  async (req: Request, res: Response): Promise<any> => {
+    try {
+      const admin = await requireVerifiedAdmin(req, res);
+      if (!admin) return;
+
+      const id = String(req.params.id || '').trim();
+      await deleteSemesterServer(id);
+      return res.json({ success: true });
+    } catch (err: any) {
+      const msg = err?.message || 'Failed to delete semester';
+      const statusCode = msg.includes('not found') ? 404 : 500;
+      return res.status(statusCode).json({ error: msg, message: msg });
+    }
+  }
+);
+
+apiRouter.post(
+  ['/admin/subject-update-system/categories', '/api/admin/subject-update-system/categories'],
+  async (req: Request, res: Response): Promise<any> => {
+    try {
+      const admin = await requireVerifiedAdmin(req, res);
+      if (!admin) return;
+
+      const category = await createCategoryServer(req.body || {});
+      return res.status(201).json({ success: true, category });
+    } catch (err: any) {
+      const msg = err?.message || 'Failed to create category';
+      const statusCode = msg.includes('required') || msg.includes('already exists') ? 400 : 500;
+      return res.status(statusCode).json({ error: msg, message: msg });
+    }
+  }
+);
+
+apiRouter.put(
+  ['/admin/subject-update-system/categories/:id', '/api/admin/subject-update-system/categories/:id'],
+  async (req: Request, res: Response): Promise<any> => {
+    try {
+      const admin = await requireVerifiedAdmin(req, res);
+      if (!admin) return;
+
+      const id = String(req.params.id || '').trim();
+      const category = await updateCategoryServer(id, req.body || {});
+      return res.json({ success: true, category });
+    } catch (err: any) {
+      const msg = err?.message || 'Failed to update category';
+      const statusCode = msg.includes('not found') ? 404 : msg.includes('empty') || msg.includes('already exists') ? 400 : 500;
+      return res.status(statusCode).json({ error: msg, message: msg });
+    }
+  }
+);
+
+apiRouter.delete(
+  ['/admin/subject-update-system/categories/:id', '/api/admin/subject-update-system/categories/:id'],
+  async (req: Request, res: Response): Promise<any> => {
+    try {
+      const admin = await requireVerifiedAdmin(req, res);
+      if (!admin) return;
+
+      const id = String(req.params.id || '').trim();
+      await deleteCategoryServer(id);
+      return res.json({ success: true });
+    } catch (err: any) {
+      const msg = err?.message || 'Failed to delete category';
+      const statusCode = msg.includes('not found') ? 404 : 500;
+      return res.status(statusCode).json({ error: msg, message: msg });
+    }
+  }
+);
+
+apiRouter.post(
+  ['/admin/subject-update-system/departments', '/api/admin/subject-update-system/departments'],
+  async (req: Request, res: Response): Promise<any> => {
+    try {
+      const admin = await requireVerifiedAdmin(req, res);
+      if (!admin) return;
+
+      const department = await createDepartmentServer(req.body || {});
+      return res.status(201).json({ success: true, department });
+    } catch (err: any) {
+      const msg = err?.message || 'Failed to create department';
+      const statusCode = msg.includes('required') || msg.includes('already exists') ? 400 : 500;
+      return res.status(statusCode).json({ error: msg, message: msg });
+    }
+  }
+);
+
+apiRouter.put(
+  ['/admin/subject-update-system/departments/:id', '/api/admin/subject-update-system/departments/:id'],
+  async (req: Request, res: Response): Promise<any> => {
+    try {
+      const admin = await requireVerifiedAdmin(req, res);
+      if (!admin) return;
+
+      const id = String(req.params.id || '').trim();
+      const department = await updateDepartmentServer(id, req.body || {});
+      return res.json({ success: true, department });
+    } catch (err: any) {
+      const msg = err?.message || 'Failed to update department';
+      const statusCode = msg.includes('not found') ? 404 : msg.includes('empty') || msg.includes('already exists') ? 400 : 500;
+      return res.status(statusCode).json({ error: msg, message: msg });
+    }
+  }
+);
+
+apiRouter.delete(
+  ['/admin/subject-update-system/departments/:id', '/api/admin/subject-update-system/departments/:id'],
+  async (req: Request, res: Response): Promise<any> => {
+    try {
+      const admin = await requireVerifiedAdmin(req, res);
+      if (!admin) return;
+
+      const id = String(req.params.id || '').trim();
+      await deleteDepartmentServer(id);
+      return res.json({ success: true });
+    } catch (err: any) {
+      const msg = err?.message || 'Failed to delete department';
+      const statusCode = msg.includes('not found') ? 404 : 500;
+      return res.status(statusCode).json({ error: msg, message: msg });
+    }
+  }
+);
+
+apiRouter.put(
+  ['/admin/subject-update-system/settings', '/api/admin/subject-update-system/settings'],
+  async (req: Request, res: Response): Promise<any> => {
+    try {
+      const admin = await requireVerifiedAdmin(req, res);
+      if (!admin) return;
+
+      const settings = await saveSubjectUpdateSystemSettingsServer(req.body || {}, admin.username);
+      return res.json({ success: true, settings });
+    } catch (err: any) {
+      console.error('Subject Update System settings save error:', err);
+      return res.status(500).json({
+        error: 'Failed to save Subject Update settings',
+        message: err?.message || 'Unexpected server error',
+      });
+    }
+  }
+);
+
+
+
+

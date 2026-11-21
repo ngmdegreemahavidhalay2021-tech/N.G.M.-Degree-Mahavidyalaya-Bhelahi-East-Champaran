@@ -46,6 +46,8 @@ import { AcademicSessionModule } from './components/AcademicSessionModule';
 import { SemesterModule } from './components/SemesterModule';
 import { SystemSettingsModule } from './components/SystemSettingsModule';
 import { MemoSheetModule } from './components/MemoSheetModule';
+import { DatabaseManagementModule } from './components/DatabaseManagementModule';
+import { SubjectUpdateModule } from './components/SubjectUpdateModule';
 import {
   Department,
   Subject,
@@ -787,6 +789,19 @@ export default function App() {
               onSettingsChanged={handleAppearanceChanged}
               collegeName={collegeName}
             />
+          )}
+
+          {/* DATABASE & STORAGE MANAGEMENT (ADMIN-ONLY) */}
+          {activeModule === 'database-management' && admin && (
+            <DatabaseManagementModule
+              admin={admin}
+              onDataChanged={loadCollegeDatabase}
+            />
+          )}
+
+          {/* INDEPENDENT MODULE: SUBJECT UPDATE (ADMIN-ONLY) */}
+          {activeModule === 'subject-update' && admin && (
+            <SubjectUpdateModule admin={admin} />
           )}
 
           {/* MY PROFILE */}

@@ -22,6 +22,8 @@ import {
   ChevronRight,
   ShieldCheck,
   ClipboardList,
+  Database,
+  BookCheck,
 } from 'lucide-react';
 
 export type SidebarModuleKey =
@@ -39,6 +41,8 @@ export type SidebarModuleKey =
   | 'memo-sheet'
   | 'settings'
   | 'appearance-settings'
+  | 'database-management'
+  | 'subject-update'
   | 'logs'
   | 'profile'
   | 'change-password';
@@ -118,6 +122,7 @@ const MENU_GROUPS: MenuGroup[] = [
     items: [
       { key: 'settings', label: 'Admin Settings', icon: Settings },
       { key: 'appearance-settings', label: 'System Customization', icon: Palette },
+      { key: 'database-management', label: 'Database & Storage Management', icon: Database },
       { key: 'logs', label: 'Activity Logs', icon: History },
     ],
   },
@@ -236,6 +241,28 @@ export const Sidebar: React.FC<SidebarProps> = ({
             </div>
           );
         })}
+
+        {/* Independent Top-Level Sidebar Option: Subject Update */}
+        <div className="pt-1 border-t border-slate-800/80">
+          <button
+            type="button"
+            onClick={() => onSelectModule('subject-update')}
+            className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-semibold transition-all text-left cursor-pointer ${
+              activeModule === 'subject-update'
+                ? 'bg-blue-600 text-white shadow-md shadow-blue-600/30'
+                : 'text-slate-200 hover:text-white hover:bg-slate-800/60'
+            }`}
+          >
+            <div className="flex items-center gap-2.5 truncate">
+              <BookCheck
+                className={`w-4 h-4 shrink-0 ${
+                  activeModule === 'subject-update' ? 'text-white' : 'text-blue-400'
+                }`}
+              />
+              <span className="truncate">SUBJECT UPDATE</span>
+            </div>
+          </button>
+        </div>
 
       </nav>
 

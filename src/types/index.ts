@@ -387,3 +387,247 @@ export interface AuditLogItem {
   timestamp: string;
 }
 
+export type StorageWarningLevel = 'normal' | 'warning' | 'high' | 'critical';
+
+export interface CollectionStorageBreakdown {
+  collectionName: string;
+  label: string;
+  documentCount: number;
+  rawJsonBytes: number;
+  estimatedFirestoreBytes: number;
+  category: 'academic' | 'students' | 'examination' | 'logs' | 'system';
+}
+
+export interface SessionSummaryRow {
+  session: string;
+  studentsCount: number;
+  excelUploadsCount: number;
+  practicalFormsCount: number;
+  marksCount: number;
+  tokensCount: number;
+  allocationsCount: number;
+  estimatedFirestoreBytes: number;
+}
+
+export interface DatabaseUsageMetrics {
+  generatedAt: string;
+  projectId: string;
+  firestoreDatabaseId: string;
+  storageQuotaBytes: number; // Official Firestore Spark free tier: 1 GiB (1073741824 bytes)
+  estimatedFirestoreBytesUsed: number;
+  rawJsonBytesTotal: number;
+  availableStorageBytes: number;
+  usagePercentage: number;
+  warningLevel: StorageWarningLevel;
+  warningLabel: string;
+  totals: {
+    totalDocuments: number;
+    totalStudents: number;
+    totalPaperStudents: number;
+    totalPracticalForms: number;
+    totalMarksRecords: number;
+    totalSessions: number;
+    totalExaminerTokens: number;
+    totalActivityLogs: number;
+    totalDeletionAuditLogs: number;
+  };
+  collectionBreakdown: CollectionStorageBreakdown[];
+  sessionSummaries: SessionSummaryRow[];
+  telemetryHonesty: {
+    estimationMethod: string;
+    cloudMonitoringStatus: 'unavailable_starter_iam' | 'available';
+    cloudMonitoringMessage: string;
+    firebaseStorageBucket: string;
+    firebaseStorageStatus: 'not_provisioned' | 'unavailable' | 'available';
+    firebaseStorageBytesUsed: number;
+    firebaseStorageMessage: string;
+    sparkPlanQuotas: {
+      storageLimit: string;
+      dailyReads: string;
+      dailyWrites: string;
+      dailyDeletes: string;
+    };
+  };
+}
+
+export type SessionDeletionCategory =
+  | 'students'
+  | 'excel_uploads'
+  | 'practical_forms'
+  | 'marks_records'
+  | 'form_links_tokens'
+  | 'subject_allocations'
+  | 'departments_subjects'
+  | 'session_activity'
+  | 'complete_session';
+
+export interface SessionCategoryCount {
+  category: Exclude<SessionDeletionCategory, 'complete_session'>;
+  label: string;
+  description: string;
+  collections: string[];
+  estimatedCount: number;
+  estimatedBytes: number;
+  actionType: 'delete' | 'revoke_and_delete';
+  note?: string;
+}
+
+export interface IndividualRecordItem {
+  id: string;
+  collection:
+    | 'students'
+    | 'paperStudents'
+    | 'practicalForms'
+    | 'marks'
+    | 'examinerAssignments'
+    | 'academicPapers';
+  primaryLabel: string;
+  secondaryLabel: string;
+  meta: string;
+  session: string;
+  createdAt?: string;
+}
+
+export interface SessionDeletionPreview {
+  session: string;
+  generatedAt: string;
+  totalEstimatedRecords: number;
+  totalEstimatedBytes: number;
+  categories: SessionCategoryCount[];
+  individualRecords: {
+    students: IndividualRecordItem[];
+    paperStudents: IndividualRecordItem[];
+    practicalForms: IndividualRecordItem[];
+    marks: IndividualRecordItem[];
+    examinerAssignments: IndividualRecordItem[];
+    academicPapers: IndividualRecordItem[];
+  };
+}
+
+export interface DeletionRequestPayload {
+  mode: 'category' | 'complete_session' | 'individual';
+  session: string;
+  category?: SessionDeletionCategory;
+  confirmSessionText?: string;
+  backupDownloaded?: boolean;
+  targetCollection?:
+    | 'students'
+    | 'paperStudents'
+    | 'practicalForms'
+    | 'marks'
+    | 'examinerAssignments'
+    | 'academicPapers';
+  targetId?: string;
+}
+
+export interface DeletionExecutionResult {
+  success: boolean;
+  mode: 'category' | 'complete_session' | 'individual';
+  session: string;
+  category: string;
+  deletedCount: number;
+  revokedCount: number;
+  failedCount: number;
+  breakdown: Record<string, number>;
+  auditLogId: string;
+  message: string;
+  updatedUsage?: DatabaseUsageMetrics;
+}
+
+export interface DeletionAuditLogEntry {
+  id: string;
+  action: 'DATABASE_PERMANENT_DELETE' | 'SESSION_BACKUP_EXPORTED';
+  mode: 'category' | 'complete_session' | 'individual' | 'backup';
+  session: string;
+  category: string;
+  deletedBy: string;
+  deletedByUid: string;
+  deletedCount: number;
+  revokedCount?: number;
+  failedCount?: number;
+  backupDownloaded: boolean;
+  breakdown?: Record<string, number>;
+  details: string;
+  timestamp: string;
+}
+
+export interface SubjectUpdateItem {
+  id: string;
+  subjectCode: string;
+  subjectName: string;
+  category: string;
+  session: string;
+  semester: string;
+  departmentName: string;
+  paperTitle?: string;
+  subjectInfo?: string;
+  isActive: boolean;
+  createdBy: string;
+  updatedBy: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface SubjectUpdateSession {
+  id: string;
+  sessionName: string;
+  isActive: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface SubjectUpdateSemester {
+  id: string;
+  semesterName: string;
+  order: number;
+  isActive: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface SubjectUpdateCategory {
+  id: string;
+  code: string;
+  label: string;
+  description?: string;
+  isActive: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface SubjectUpdateDepartment {
+  id: string;
+  code: string;
+  name: string;
+  info?: string;
+  isActive: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface SubjectUpdateSystemSettings {
+  id: 'default';
+  systemTitle: string;
+  institutionName: string;
+  defaultSession: string;
+  defaultCategory: string;
+  enforceUppercaseCodes: boolean;
+  preventDuplicateCodes: boolean;
+  notes: string;
+  updatedBy: string;
+  updatedAt: string;
+}
+
+export interface SubjectUpdateSystemState {
+  subjects: SubjectUpdateItem[];
+  sessions: SubjectUpdateSession[];
+  semesters: SubjectUpdateSemester[];
+  categories: SubjectUpdateCategory[];
+  departments: SubjectUpdateDepartment[];
+  settings: SubjectUpdateSystemSettings;
+}
+
+
+
+
+

@@ -279,6 +279,125 @@
         "updatedAt": { "type": "string" }
       },
       "required": ["id", "session", "semester", "category", "subject"]
+    },
+    "DeletionAuditLog": {
+      "title": "DeletionAuditLog",
+      "description": "Immutable permanent record of administrator database cleanup and backup exports",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "action": { "type": "string", "enum": ["DATABASE_PERMANENT_DELETE", "SESSION_BACKUP_EXPORTED"] },
+        "mode": { "type": "string", "enum": ["category", "complete_session", "individual", "backup"] },
+        "session": { "type": "string" },
+        "category": { "type": "string" },
+        "deletedBy": { "type": "string" },
+        "deletedByUid": { "type": "string" },
+        "deletedCount": { "type": "number" },
+        "revokedCount": { "type": "number" },
+        "failedCount": { "type": "number" },
+        "backupDownloaded": { "type": "boolean" },
+        "breakdown": { "type": "object" },
+        "details": { "type": "string" },
+        "timestamp": { "type": "string" }
+      },
+      "required": ["id", "action", "session", "deletedBy", "deletedCount", "timestamp"]
+    },
+    "SubjectUpdateItem": {
+      "title": "SubjectUpdateItem",
+      "description": "Independent subject record inside SUBJECT UPDATE system",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "subjectCode": { "type": "string" },
+        "subjectName": { "type": "string" },
+        "category": { "type": "string" },
+        "session": { "type": "string" },
+        "semester": { "type": "string" },
+        "departmentName": { "type": "string" },
+        "paperTitle": { "type": "string" },
+        "subjectInfo": { "type": "string" },
+        "isActive": { "type": "boolean" },
+        "createdBy": { "type": "string" },
+        "updatedBy": { "type": "string" },
+        "createdAt": { "type": "string" },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["id", "subjectCode", "subjectName", "category", "session", "semester"]
+    },
+    "SubjectUpdateSession": {
+      "title": "SubjectUpdateSession",
+      "description": "Independent academic session for SUBJECT UPDATE system",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "sessionName": { "type": "string" },
+        "isActive": { "type": "boolean" },
+        "createdAt": { "type": "string" },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["id", "sessionName", "isActive"]
+    },
+    "SubjectUpdateSemester": {
+      "title": "SubjectUpdateSemester",
+      "description": "Independent semester for SUBJECT UPDATE system",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "semesterName": { "type": "string" },
+        "order": { "type": "number" },
+        "isActive": { "type": "boolean" },
+        "createdAt": { "type": "string" },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["id", "semesterName", "order", "isActive"]
+    },
+    "SubjectUpdateCategory": {
+      "title": "SubjectUpdateCategory",
+      "description": "Independent subject category (MJC, MIC, MDC, etc.) for SUBJECT UPDATE system",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "code": { "type": "string" },
+        "label": { "type": "string" },
+        "description": { "type": "string" },
+        "isActive": { "type": "boolean" },
+        "createdAt": { "type": "string" },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["id", "code", "label", "isActive"]
+    },
+    "SubjectUpdateDepartment": {
+      "title": "SubjectUpdateDepartment",
+      "description": "Independent department and subject info record inside SUBJECT UPDATE system",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "code": { "type": "string" },
+        "name": { "type": "string" },
+        "info": { "type": "string" },
+        "isActive": { "type": "boolean" },
+        "createdAt": { "type": "string" },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["id", "code", "name", "isActive"]
+    },
+    "SubjectUpdateSystemSettings": {
+      "title": "SubjectUpdateSystemSettings",
+      "description": "Independent settings for SUBJECT UPDATE system",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "systemTitle": { "type": "string" },
+        "institutionName": { "type": "string" },
+        "defaultSession": { "type": "string" },
+        "defaultCategory": { "type": "string" },
+        "enforceUppercaseCodes": { "type": "boolean" },
+        "preventDuplicateCodes": { "type": "boolean" },
+        "notes": { "type": "string" },
+        "updatedBy": { "type": "string" },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["id", "systemTitle", "defaultSession", "defaultCategory"]
     }
   },
   "firestore": {
@@ -341,6 +460,34 @@
     "/memoSheetConfigs/{configId}": {
       "schema": { "$ref": "#/entities/MemoSheetConfig" },
       "description": "Saved memo sheet examination and professor configuration per subject"
+    },
+    "/deletionAuditLogs/{logId}": {
+      "schema": { "$ref": "#/entities/DeletionAuditLog" },
+      "description": "Immutable audit logs of database permanent deletions and session backups"
+    },
+    "/subjectUpdateSubjects/{subjectId}": {
+      "schema": { "$ref": "#/entities/SubjectUpdateItem" },
+      "description": "Independent subjects managed by SUBJECT UPDATE system"
+    },
+    "/subjectUpdateSessions/{sessionId}": {
+      "schema": { "$ref": "#/entities/SubjectUpdateSession" },
+      "description": "Independent academic sessions inside SUBJECT UPDATE"
+    },
+    "/subjectUpdateSemesters/{semesterId}": {
+      "schema": { "$ref": "#/entities/SubjectUpdateSemester" },
+      "description": "Independent semesters inside SUBJECT UPDATE"
+    },
+    "/subjectUpdateCategories/{categoryId}": {
+      "schema": { "$ref": "#/entities/SubjectUpdateCategory" },
+      "description": "Independent subject categories inside SUBJECT UPDATE"
+    },
+    "/subjectUpdateDepartments/{departmentId}": {
+      "schema": { "$ref": "#/entities/SubjectUpdateDepartment" },
+      "description": "Independent department/subject info entries inside SUBJECT UPDATE"
+    },
+    "/subjectUpdateSystemSettings/{settingId}": {
+      "schema": { "$ref": "#/entities/SubjectUpdateSystemSettings" },
+      "description": "Independent SUBJECT UPDATE system configuration"
     }
   }
 }
