@@ -26,6 +26,7 @@ import {
   getAppearanceSettings,
   saveAppearanceSettings,
 } from '../services/collegeService';
+import { setPortalThemeMode } from '../lib/themeManager';
 
 interface SystemSettingsModuleProps {
   currentSettings: AppearanceSettings;
@@ -80,6 +81,7 @@ export const SystemSettingsModule: React.FC<SystemSettingsModuleProps> = ({
   const handleSave = async () => {
     try {
       setSaving(true);
+      setPortalThemeMode('admin', mode);
       const updated = await saveAppearanceSettings({
         appearanceMode: mode,
         selectedFont: font,
@@ -104,6 +106,7 @@ export const SystemSettingsModule: React.FC<SystemSettingsModuleProps> = ({
     setMode('dark');
     setFont('Inter');
     setTheme('blue');
+    setPortalThemeMode('admin', 'dark');
 
     try {
       setSaving(true);
@@ -306,7 +309,7 @@ export const SystemSettingsModule: React.FC<SystemSettingsModuleProps> = ({
 
             {/* Preview Box Container */}
             <div
-              className={`p-5 rounded-2xl border transition-all ${
+              className={`appearance-live-preview p-5 rounded-2xl border transition-all ${
                 mode === 'light'
                   ? 'bg-white text-slate-900 border-slate-200 shadow-xl'
                   : 'bg-slate-950 text-slate-100 border-slate-800 shadow-2xl'

@@ -618,16 +618,259 @@ export interface SubjectUpdateSystemSettings {
   updatedAt: string;
 }
 
+export interface SubjectUpdateCombination {
+  id: string;
+  combinationCode: string;
+  combinationName: string;
+  session: string;
+  semester: string;
+  category: string;
+  subjectCount: number;
+  subjectIds: string[];
+  subjectCodes: string[];
+  subjectNames: string[];
+  notes?: string;
+  isActive: boolean;
+  createdBy: string;
+  updatedBy: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export type SubjectUpdateAllocationStatus = 'ALLOCATED' | 'PARTIAL' | 'UNMATCHED';
+
+export interface SubjectUpdateStudent {
+  id: string;
+  sn: string;
+  applicationNo?: string;
+  studentName: string;
+  rollNumber: string;
+  departmentName?: string;
+  rawSubjectText: string;
+  session: string;
+  semester: string;
+  category: string;
+  matchedSubjectIds: string[];
+  matchedSubjectNames: string[];
+  combinationId?: string;
+  combinationName?: string;
+  groupId?: string;
+  groupName?: string;
+  selectionFormId?: string;
+  selectionFormName?: string;
+  allocationStatus: SubjectUpdateAllocationStatus;
+  notes?: string;
+  createdBy: string;
+  updatedBy: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface SubjectUpdateStudentGroup {
+  id: string;
+  groupCode: string;
+  groupName: string;
+  session: string;
+  semester: string;
+  category: string;
+  subjectId?: string;
+  subjectLabel?: string;
+  combinationId?: string;
+  combinationLabel?: string;
+  studentIds: string[];
+  capacity?: number;
+  inChargeStaffId?: string;
+  inChargeStaffName?: string;
+  assignedStaffIds: string[];
+  assignedStaffNames: string[];
+  notes?: string;
+  isActive: boolean;
+  createdBy: string;
+  updatedBy: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface SubjectUpdateStaff {
+  id: string;
+  staffCode: string;
+  fullName: string;
+  designation: string;
+  departmentName: string;
+  email?: string;
+  phone?: string;
+  specialization?: string;
+  isActive: boolean;
+  createdBy: string;
+  updatedBy: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export type SubjectUpdateAssignmentTargetType = 'SUBJECT' | 'COMBINATION' | 'GROUP';
+
+export interface SubjectUpdateStaffAssignment {
+  id: string;
+  session: string;
+  semester: string;
+  category: string;
+  targetType: SubjectUpdateAssignmentTargetType;
+  subjectId?: string;
+  subjectLabel?: string;
+  combinationId?: string;
+  combinationLabel?: string;
+  groupId?: string;
+  groupLabel?: string;
+  staffIds: string[];
+  staffNames: string[];
+  inChargeStaffId: string;
+  inChargeStaffName: string;
+  remarks?: string;
+  isActive: boolean;
+  createdBy: string;
+  updatedBy: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export type SubjectUpdateWorkStatus = 'PENDING' | 'IN_PROGRESS' | 'COMPLETED' | 'ON_HOLD';
+export type SubjectUpdateWorkPriority = 'NORMAL' | 'HIGH' | 'URGENT';
+
+export interface SubjectUpdateWorkAllocation {
+  id: string;
+  title: string;
+  session: string;
+  semester: string;
+  category: string;
+  subjectId?: string;
+  subjectLabel?: string;
+  combinationId?: string;
+  combinationLabel?: string;
+  groupId?: string;
+  groupLabel?: string;
+  staffIds: string[];
+  staffNames: string[];
+  inChargeStaffId: string;
+  inChargeStaffName: string;
+  instructions: string;
+  deadline: string;
+  priority: SubjectUpdateWorkPriority;
+  progressStatus: SubjectUpdateWorkStatus;
+  remarks?: string;
+  createdBy: string;
+  updatedBy: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+// --- NEP Subject Combination & Student Selection System ---
+
+export const NEP_CATEGORIES = ['MAJOR', 'MIC', 'MDC', 'AEC', 'SEC', 'VAC'] as const;
+export type NepCategoryKey = (typeof NEP_CATEGORIES)[number];
+
+export interface NepCategoryRule {
+  subjectIds: string[];
+  required: boolean;
+  minSelect: number;
+  maxSelect: number;
+}
+
+export interface SubjectUpdateNepConfig {
+  id: string;
+  session: string;
+  semester: string;
+  allowedMajorIds: string[];
+  majorToMicMap: Record<string, string[]>;
+  categoryRules: Record<NepCategoryKey, NepCategoryRule>;
+  updatedBy: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface SubjectUpdateNepStudentSelection {
+  studentId: string;
+  applicationNo: string;
+  rollNumber: string;
+  studentName: string;
+  departmentName: string;
+  majorIds: string[];
+  micIds: string[];
+  mdcIds: string[];
+  aecIds: string[];
+  secIds: string[];
+  vacIds: string[];
+  isComplete: boolean;
+  updatedAt?: string;
+  updatedBy?: string;
+}
+
+export type SelectionFormStatus = 'OPEN' | 'IN_PROGRESS' | 'SUBMITTED';
+
+export interface SubjectUpdateSelectionForm {
+  id: string;
+  title: string;
+  session: string;
+  semester: string;
+  departmentName: string;
+  inChargeStaffId: string;
+  inChargeStaffName: string;
+  assignedStaffIds: string[];
+  assignedStaffNames: string[];
+  studentIds: string[];
+  deadline: string;
+  token: string;
+  status: SelectionFormStatus;
+  isLocked: boolean;
+  selections: Record<string, SubjectUpdateNepStudentSelection>;
+  totalStudents: number;
+  completedCount: number;
+  pendingCount: number;
+  submittedAt?: string;
+  submittedBy?: string;
+  reopenedAt?: string;
+  reopenedBy?: string;
+  createdBy: string;
+  updatedBy: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface PublicNepSelectionFormPayload {
+  form: {
+    id: string;
+    title: string;
+    institutionName: string;
+    session: string;
+    semester: string;
+    departmentName: string;
+    inChargeStaffName: string;
+    deadline: string;
+    status: SelectionFormStatus;
+    isLocked: boolean;
+    totalStudents: number;
+    completedCount: number;
+    pendingCount: number;
+    submittedAt?: string;
+  };
+  nepConfig: SubjectUpdateNepConfig;
+  subjectsByCategory: Record<NepCategoryKey, SubjectUpdateItem[]>;
+  students: SubjectUpdateNepStudentSelection[];
+}
+
 export interface SubjectUpdateSystemState {
   subjects: SubjectUpdateItem[];
   sessions: SubjectUpdateSession[];
   semesters: SubjectUpdateSemester[];
   categories: SubjectUpdateCategory[];
   departments: SubjectUpdateDepartment[];
+  combinations: SubjectUpdateCombination[];
+  students: SubjectUpdateStudent[];
+  groups: SubjectUpdateStudentGroup[];
+  staff: SubjectUpdateStaff[];
+  staffAssignments: SubjectUpdateStaffAssignment[];
+  workAllocations: SubjectUpdateWorkAllocation[];
+  nepConfigs: SubjectUpdateNepConfig[];
+  selectionForms: SubjectUpdateSelectionForm[];
   settings: SubjectUpdateSystemSettings;
 }
-
-
-
-
 

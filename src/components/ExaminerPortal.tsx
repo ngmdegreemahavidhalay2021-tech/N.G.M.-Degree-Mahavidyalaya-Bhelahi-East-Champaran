@@ -15,6 +15,8 @@ import confetti from 'canvas-confetti';
 import { PracticalExam, ExamStudent } from '../types';
 import { getPracticalExamById, getExamStudents, batchSaveStudents, updatePracticalExam } from '../services/examService';
 import { exportExamMarksToExcel } from '../lib/excelExport';
+import { usePortalTheme } from '../lib/themeManager';
+import { PortalThemeSelector } from './PortalThemeSelector';
 
 interface ExaminerPortalProps {
   examId: string;
@@ -27,6 +29,7 @@ export const ExaminerPortal: React.FC<ExaminerPortalProps> = ({
   accessKey,
   onExit,
 }) => {
+  usePortalTheme('staff');
   const [exam, setExam] = useState<PracticalExam | null>(null);
   const [students, setStudents] = useState<ExamStudent[]>([]);
   const [loading, setLoading] = useState(true);
@@ -220,7 +223,9 @@ export const ExaminerPortal: React.FC<ExaminerPortalProps> = ({
             </div>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <PortalThemeSelector scope="staff" compact />
+
             <button
               onClick={() => exportExamMarksToExcel(exam, students)}
               className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 transition-colors"

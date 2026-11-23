@@ -48,6 +48,7 @@ import { SystemSettingsModule } from './components/SystemSettingsModule';
 import { MemoSheetModule } from './components/MemoSheetModule';
 import { DatabaseManagementModule } from './components/DatabaseManagementModule';
 import { SubjectUpdateModule } from './components/SubjectUpdateModule';
+import { PublicNepSelectionForm } from './components/PublicNepSelectionForm';
 import {
   Department,
   Subject,
@@ -74,12 +75,22 @@ import {
   subscribeToAllMarks,
 } from './services/collegeService';
 import { fetchBootstrapStatus } from './services/examService';
+import {
+  applyPortalThemeToDom,
+  detectPortalScopeFromUrl,
+  getPortalThemeMode,
+  getStoredPortalThemeMode,
+  setPortalThemeMode,
+  usePortalTheme,
+} from './lib/themeManager';
+import { AppearanceMode } from './types';
 
 export default function App() {
   // Navigation & View State
   const [activeModule, setActiveModule] = useState<SidebarModuleKey>('overview');
   const [selectedFormForMarks, setSelectedFormForMarks] = useState<string | undefined>();
   const [publicFormToken, setPublicFormToken] = useState<string | null>(null);
+  const [publicSelectionToken, setPublicSelectionToken] = useState<string | null>(null);
 
   // College Data Models
   const [departments, setDepartments] = useState<Department[]>([]);
@@ -103,12 +114,16 @@ export default function App() {
   const [collegeName, setCollegeName] = useState('NGM Degree Mahavidyalaya');
   const [loading, setLoading] = useState(true);
 
-  // Appearance Customization State
-  const [appearanceSettings, setAppearanceSettings] = useState<AppearanceSettings>({
-    appearanceMode: 'dark',
+  // Appearance Customization State (Admin scope)
+  const [appearanceSettings, setAppearanceSettings] = useState<AppearanceSettings>(() => ({
+    appearanceMode: getPortalThemeMode('admin'),
     selectedFont: 'Inter',
     selectedTheme: 'blue',
-  });
+  }));
+
+  const activePortalScope =
+    publicFormToken || publicSelectionToken ? 'staff' : detectPortalScopeFromUrl();
+  const { mode: scopedThemeMode, setMode: setScopedThemeMode } = usePortalTheme(activePortalScope);
 
   // Modals
   const [showLoginModal, setShowLoginModal] = useState(false);
@@ -116,21 +131,13 @@ export default function App() {
   const [setupToken, setSetupToken] = useState<string | null>(null);
   const [showRecoveryModal, setShowRecoveryModal] = useState(false);
 
-  // Apply Appearance Theme & Typography to Document
-  const applyAppearance = (settings: AppearanceSettings) => {
-    // 1. Dark/Light Mode
-    const root = document.documentElement;
-    if (settings.appearanceMode === 'light') {
-      root.classList.remove('dark');
-    } else if (settings.appearanceMode === 'dark') {
-      root.classList.add('dark');
+  // Apply Appearance Theme & Typography to Document (Strictly Scoped per Portal)
+  const applyAppearance = (settings: AppearanceSettings, targetScope: 'admin' | 'staff' = activePortalScope) => {
+    // 1. Dark / Light / System Default strictly scoped to active portal
+    if (targetScope === 'admin') {
+      applyPortalThemeToDom('admin', getPortalThemeMode('admin'));
     } else {
-      // System default
-      if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) {
-        root.classList.add('dark');
-      } else {
-        root.classList.remove('dark');
-      }
+      applyPortalThemeToDom('staff', getPortalThemeMode('staff'));
     }
 
     // 2. Font Family
@@ -147,28 +154,49 @@ export default function App() {
     document.body.style.fontFamily = targetFont;
 
     // 3. Theme Attribute
-    root.setAttribute('data-theme', settings.selectedTheme || 'blue');
+    document.documentElement.setAttribute('data-theme', settings.selectedTheme || 'blue');
   };
 
   const handleAppearanceChanged = (newSettings: AppearanceSettings) => {
+    setPortalThemeMode('admin', newSettings.appearanceMode);
     setAppearanceSettings(newSettings);
-    applyAppearance(newSettings);
+    applyAppearance(newSettings, 'admin');
   };
+
+  const handleAdminThemeModeChange = (nextMode: AppearanceMode) => {
+    setPortalThemeMode('admin', nextMode);
+    setAppearanceSettings((prev) => ({
+      ...prev,
+      appearanceMode: nextMode,
+    }));
+  };
+
+  // Keep Admin UI theme mode synchronized with scopedThemeMode when in Admin Portal
+  useEffect(() => {
+    if (activePortalScope === 'admin') {
+      setAppearanceSettings((prev) =>
+        prev.appearanceMode === scopedThemeMode ? prev : { ...prev, appearanceMode: scopedThemeMode }
+      );
+    }
+  }, [activePortalScope, scopedThemeMode]);
 
   // Read URL query params on boot
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
+    const selectionToken = params.get('selectionToken');
     const token = params.get('token') || params.get('key');
-    if (token) {
+    if (selectionToken) {
+      setPublicSelectionToken(selectionToken);
+    } else if (token) {
       setPublicFormToken(token);
     }
 
-    initSystem();
+    initSystem(Boolean(selectionToken || token));
   }, []);
 
   // Real-time Firestore synchronization across all admin screens & tabs (only when authenticated)
   useEffect(() => {
-    if (!admin || publicFormToken) return;
+    if (!admin || publicFormToken || publicSelectionToken) return;
 
     const unsubs: Array<() => void> = [];
     const onSubError = (err: any) => {
@@ -217,15 +245,15 @@ export default function App() {
     return () => {
       unsubs.forEach((u) => u());
     };
-  }, [admin, publicFormToken]);
+  }, [admin, publicFormToken, publicSelectionToken]);
 
-  const initSystem = async () => {
+  const initSystem = async (isStaffRoute = detectPortalScopeFromUrl() === 'staff') => {
     try {
       setLoading(true);
       const [bStatus, appSettings] = await Promise.all([
         fetchBootstrapStatus(),
         getAppearanceSettings().catch(() => ({
-          appearanceMode: 'dark' as const,
+          appearanceMode: getPortalThemeMode('admin'),
           selectedFont: 'Inter' as const,
           selectedTheme: 'blue' as const,
         })),
@@ -237,8 +265,22 @@ export default function App() {
       }
 
       if (appSettings) {
-        setAppearanceSettings(appSettings);
-        applyAppearance(appSettings);
+        if (!isStaffRoute) {
+          const localAdminPref = getStoredPortalThemeMode('admin');
+          const resolvedAdminMode = localAdminPref ?? appSettings.appearanceMode ?? 'dark';
+          if (!localAdminPref) {
+            setPortalThemeMode('admin', resolvedAdminMode);
+          }
+          const syncedSettings: AppearanceSettings = {
+            ...appSettings,
+            appearanceMode: resolvedAdminMode,
+          };
+          setAppearanceSettings(syncedSettings);
+          applyAppearance(syncedSettings, 'admin');
+        } else {
+          // On Staff Portal routes, preserve independent Staff theme preference and never apply Admin theme mode
+          applyPortalThemeToDom('staff', getPortalThemeMode('staff'));
+        }
       }
 
       // Check saved session
@@ -365,6 +407,19 @@ export default function App() {
           <span>Loading Examination Portal...</span>
         </div>
       </div>
+    );
+  }
+
+  // Public NEP Department In-Charge Selection Form Route
+  if (publicSelectionToken) {
+    return (
+      <PublicNepSelectionForm
+        token={publicSelectionToken}
+        onExit={() => {
+          setPublicSelectionToken(null);
+          window.history.replaceState({}, '', '/');
+        }}
+      />
     );
   }
 
@@ -769,6 +824,8 @@ export default function App() {
             <AdminSettingsModule
               admin={admin}
               bootstrapStatus={bootstrapStatus}
+              adminThemeMode={appearanceSettings.appearanceMode}
+              onAdminThemeModeChange={handleAdminThemeModeChange}
               onUpdateInstitutionName={(name) => {
                 setCollegeName(name);
                 logActivity('INSTITUTION_NAME_UPDATED', `Updated college identity to ${name}`);

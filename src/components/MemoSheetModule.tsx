@@ -1264,7 +1264,7 @@ export const MemoSheetModule: React.FC<MemoSheetModuleProps> = ({ collegeName })
               </div>
             ) : (
               /* Traditional White Paper Examination Memo Sheet Preview */
-              <div className="bg-white text-black max-w-[820px] mx-auto p-6 sm:p-8 rounded-lg shadow-2xl border border-slate-300 font-sans">
+              <div className="memo-paper-preview bg-white text-black max-w-[820px] mx-auto p-6 sm:p-8 rounded-lg shadow-2xl border border-slate-300 font-sans">
                 {/* 5-Line Header Block */}
                 <table className="w-full border-collapse border border-black text-[12px] font-bold">
                   <tbody>

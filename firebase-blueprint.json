@@ -398,6 +398,221 @@
         "updatedAt": { "type": "string" }
       },
       "required": ["id", "systemTitle", "defaultSession", "defaultCategory"]
+    },
+    "SubjectUpdateCombination": {
+      "title": "SubjectUpdateCombination",
+      "description": "Independent subject combination grouped by session, semester, and category",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "combinationCode": { "type": "string" },
+        "combinationName": { "type": "string" },
+        "session": { "type": "string" },
+        "semester": { "type": "string" },
+        "category": { "type": "string" },
+        "subjectCount": { "type": "number" },
+        "subjectIds": { "type": "array" },
+        "subjectCodes": { "type": "array" },
+        "subjectNames": { "type": "array" },
+        "notes": { "type": "string" },
+        "isActive": { "type": "boolean" },
+        "createdBy": { "type": "string" },
+        "updatedBy": { "type": "string" },
+        "createdAt": { "type": "string" },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["id", "combinationCode", "combinationName", "session", "semester", "category", "subjectCount"]
+    },
+    "SubjectUpdateStudent": {
+      "title": "SubjectUpdateStudent",
+      "description": "Independent student record and subject/combination allocation inside SUBJECT UPDATE",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "sn": { "type": "string" },
+        "studentName": { "type": "string" },
+        "rollNumber": { "type": "string" },
+        "rawSubjectText": { "type": "string" },
+        "session": { "type": "string" },
+        "semester": { "type": "string" },
+        "category": { "type": "string" },
+        "matchedSubjectIds": { "type": "array" },
+        "matchedSubjectNames": { "type": "array" },
+        "combinationId": { "type": "string" },
+        "combinationName": { "type": "string" },
+        "groupId": { "type": "string" },
+        "groupName": { "type": "string" },
+        "allocationStatus": { "type": "string" },
+        "notes": { "type": "string" },
+        "createdBy": { "type": "string" },
+        "updatedBy": { "type": "string" },
+        "createdAt": { "type": "string" },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["id", "studentName", "rollNumber", "session", "semester", "allocationStatus"]
+    },
+    "SubjectUpdateStudentGroup": {
+      "title": "SubjectUpdateStudentGroup",
+      "description": "Independent student batch/group inside SUBJECT UPDATE",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "groupCode": { "type": "string" },
+        "groupName": { "type": "string" },
+        "session": { "type": "string" },
+        "semester": { "type": "string" },
+        "category": { "type": "string" },
+        "subjectId": { "type": "string" },
+        "subjectLabel": { "type": "string" },
+        "combinationId": { "type": "string" },
+        "combinationLabel": { "type": "string" },
+        "studentIds": { "type": "array" },
+        "capacity": { "type": "number" },
+        "inChargeStaffId": { "type": "string" },
+        "inChargeStaffName": { "type": "string" },
+        "assignedStaffIds": { "type": "array" },
+        "assignedStaffNames": { "type": "array" },
+        "notes": { "type": "string" },
+        "isActive": { "type": "boolean" },
+        "createdBy": { "type": "string" },
+        "updatedBy": { "type": "string" },
+        "createdAt": { "type": "string" },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["id", "groupCode", "groupName", "session", "semester", "category"]
+    },
+    "SubjectUpdateStaff": {
+      "title": "SubjectUpdateStaff",
+      "description": "Independent faculty/staff profile inside SUBJECT UPDATE",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "staffCode": { "type": "string" },
+        "fullName": { "type": "string" },
+        "designation": { "type": "string" },
+        "departmentName": { "type": "string" },
+        "email": { "type": "string" },
+        "phone": { "type": "string" },
+        "specialization": { "type": "string" },
+        "isActive": { "type": "boolean" },
+        "createdBy": { "type": "string" },
+        "updatedBy": { "type": "string" },
+        "createdAt": { "type": "string" },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["id", "staffCode", "fullName", "designation", "departmentName"]
+    },
+    "SubjectUpdateStaffAssignment": {
+      "title": "SubjectUpdateStaffAssignment",
+      "description": "Staff & In-charge assignments for subjects, combinations, or groups inside SUBJECT UPDATE",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "session": { "type": "string" },
+        "semester": { "type": "string" },
+        "category": { "type": "string" },
+        "targetType": { "type": "string" },
+        "subjectId": { "type": "string" },
+        "subjectLabel": { "type": "string" },
+        "combinationId": { "type": "string" },
+        "combinationLabel": { "type": "string" },
+        "groupId": { "type": "string" },
+        "groupLabel": { "type": "string" },
+        "staffIds": { "type": "array" },
+        "staffNames": { "type": "array" },
+        "inChargeStaffId": { "type": "string" },
+        "inChargeStaffName": { "type": "string" },
+        "remarks": { "type": "string" },
+        "isActive": { "type": "boolean" },
+        "createdBy": { "type": "string" },
+        "updatedBy": { "type": "string" },
+        "createdAt": { "type": "string" },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["id", "session", "semester", "category", "targetType", "inChargeStaffId"]
+    },
+    "SubjectUpdateWorkAllocation": {
+      "title": "SubjectUpdateWorkAllocation",
+      "description": "Academic responsibility & work allocation record inside SUBJECT UPDATE",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "title": { "type": "string" },
+        "session": { "type": "string" },
+        "semester": { "type": "string" },
+        "category": { "type": "string" },
+        "subjectId": { "type": "string" },
+        "subjectLabel": { "type": "string" },
+        "combinationId": { "type": "string" },
+        "combinationLabel": { "type": "string" },
+        "groupId": { "type": "string" },
+        "groupLabel": { "type": "string" },
+        "staffIds": { "type": "array" },
+        "staffNames": { "type": "array" },
+        "inChargeStaffId": { "type": "string" },
+        "inChargeStaffName": { "type": "string" },
+        "instructions": { "type": "string" },
+        "deadline": { "type": "string" },
+        "priority": { "type": "string" },
+        "progressStatus": { "type": "string" },
+        "remarks": { "type": "string" },
+        "createdBy": { "type": "string" },
+        "updatedBy": { "type": "string" },
+        "createdAt": { "type": "string" },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["id", "title", "session", "semester", "category", "inChargeStaffId", "progressStatus"]
+    },
+    "SubjectUpdateNepConfig": {
+      "title": "SubjectUpdateNepConfig",
+      "description": "NEP session and semester subject combination rules including Major-wise MIC mapping and category min/max rules",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "session": { "type": "string" },
+        "semester": { "type": "string" },
+        "allowedMajorIds": { "type": "array" },
+        "majorToMicMap": { "type": "object" },
+        "categoryRules": { "type": "object" },
+        "updatedBy": { "type": "string" },
+        "createdAt": { "type": "string" },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["id", "session", "semester", "categoryRules"]
+    },
+    "SubjectUpdateSelectionForm": {
+      "title": "SubjectUpdateSelectionForm",
+      "description": "Tokenized department in-charge NEP student subject selection assignment and persisted selections",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "title": { "type": "string" },
+        "session": { "type": "string" },
+        "semester": { "type": "string" },
+        "departmentName": { "type": "string" },
+        "inChargeStaffId": { "type": "string" },
+        "inChargeStaffName": { "type": "string" },
+        "assignedStaffIds": { "type": "array" },
+        "assignedStaffNames": { "type": "array" },
+        "studentIds": { "type": "array" },
+        "deadline": { "type": "string" },
+        "token": { "type": "string" },
+        "status": { "type": "string" },
+        "isLocked": { "type": "boolean" },
+        "selections": { "type": "object" },
+        "totalStudents": { "type": "number" },
+        "completedCount": { "type": "number" },
+        "pendingCount": { "type": "number" },
+        "submittedAt": { "type": "string" },
+        "submittedBy": { "type": "string" },
+        "reopenedAt": { "type": "string" },
+        "reopenedBy": { "type": "string" },
+        "createdBy": { "type": "string" },
+        "updatedBy": { "type": "string" },
+        "createdAt": { "type": "string" },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["id", "session", "semester", "departmentName", "inChargeStaffId", "token", "status"]
     }
   },
   "firestore": {
@@ -488,6 +703,38 @@
     "/subjectUpdateSystemSettings/{settingId}": {
       "schema": { "$ref": "#/entities/SubjectUpdateSystemSettings" },
       "description": "Independent SUBJECT UPDATE system configuration"
+    },
+    "/subjectUpdateCombinations/{combinationId}": {
+      "schema": { "$ref": "#/entities/SubjectUpdateCombination" },
+      "description": "Independent subject combinations inside SUBJECT UPDATE"
+    },
+    "/subjectUpdateStudents/{studentId}": {
+      "schema": { "$ref": "#/entities/SubjectUpdateStudent" },
+      "description": "Independent student allocations inside SUBJECT UPDATE"
+    },
+    "/subjectUpdateStudentGroups/{groupId}": {
+      "schema": { "$ref": "#/entities/SubjectUpdateStudentGroup" },
+      "description": "Independent student groups inside SUBJECT UPDATE"
+    },
+    "/subjectUpdateStaff/{staffId}": {
+      "schema": { "$ref": "#/entities/SubjectUpdateStaff" },
+      "description": "Independent staff directory inside SUBJECT UPDATE"
+    },
+    "/subjectUpdateStaffAssignments/{assignmentId}": {
+      "schema": { "$ref": "#/entities/SubjectUpdateStaffAssignment" },
+      "description": "Independent staff & in-charge allocations inside SUBJECT UPDATE"
+    },
+    "/subjectUpdateWorkAllocations/{allocationId}": {
+      "schema": { "$ref": "#/entities/SubjectUpdateWorkAllocation" },
+      "description": "Independent work allocations inside SUBJECT UPDATE"
+    },
+    "/subjectUpdateNepConfigs/{configId}": {
+      "schema": { "$ref": "#/entities/SubjectUpdateNepConfig" },
+      "description": "NEP Subject Combination configurations inside SUBJECT UPDATE"
+    },
+    "/subjectUpdateSelectionForms/{formId}": {
+      "schema": { "$ref": "#/entities/SubjectUpdateSelectionForm" },
+      "description": "Department In-Charge NEP Student Selection forms inside SUBJECT UPDATE"
     }
   }
 }

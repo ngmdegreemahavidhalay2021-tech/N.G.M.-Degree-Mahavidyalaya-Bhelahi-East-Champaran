@@ -14,13 +14,17 @@ import {
   Edit2,
   Save,
   X,
+  Sun,
 } from 'lucide-react';
-import { AdminProfile, SystemBootstrapStatus } from '../types';
+import { AdminProfile, AppearanceMode, SystemBootstrapStatus } from '../types';
 import { updateAdminUsername } from '../services/collegeService';
+import { PortalThemeSelector } from './PortalThemeSelector';
 
 interface AdminSettingsModuleProps {
   admin: AdminProfile | null;
   bootstrapStatus: SystemBootstrapStatus | null;
+  adminThemeMode?: AppearanceMode;
+  onAdminThemeModeChange?: (mode: AppearanceMode) => void;
   onUpdateInstitutionName: (name: string) => void;
   onAdminUpdated?: (updated: AdminProfile) => void;
 }
@@ -28,6 +32,8 @@ interface AdminSettingsModuleProps {
 export const AdminSettingsModule: React.FC<AdminSettingsModuleProps> = ({
   admin,
   bootstrapStatus,
+  adminThemeMode,
+  onAdminThemeModeChange,
   onUpdateInstitutionName,
   onAdminUpdated,
 }) => {
@@ -155,8 +161,30 @@ export const AdminSettingsModule: React.FC<AdminSettingsModuleProps> = ({
           <h2 className="text-xl font-bold text-slate-100">Administrator & Institution Settings</h2>
         </div>
         <p className="text-xs text-slate-400 mt-1">
-          Manage institution identity, administrator User ID, and account security settings.
+          Manage interface theme preference, institution identity, administrator User ID, and account security settings.
         </p>
+      </div>
+
+      {/* Admin Portal Theme Preference */}
+      <div className="bg-slate-900 border border-slate-800 p-6 rounded-2xl shadow-xl space-y-4">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div>
+            <h3 className="text-sm font-bold text-slate-100 flex items-center gap-2">
+              <Sun className="w-4 h-4 text-amber-400" />
+              <span>Admin Portal Theme</span>
+            </h3>
+            <p className="text-xs text-slate-400 mt-0.5">
+              Choose Light Mode, Dark Mode, or System Default for the Admin Panel. Saved independently from the Staff Portal.
+            </p>
+          </div>
+        </div>
+
+        <PortalThemeSelector
+          scope="admin"
+          compact={false}
+          value={adminThemeMode}
+          onChange={onAdminThemeModeChange}
+        />
       </div>
 
       {/* College Identity Settings */}

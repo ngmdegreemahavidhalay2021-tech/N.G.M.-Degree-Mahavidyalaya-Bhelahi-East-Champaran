@@ -12,8 +12,40 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+    <script>
+      (function () {
+        try {
+          var params = new URLSearchParams(window.location.search);
+          var isStaff = Boolean(
+            params.get('token') ||
+            params.get('key') ||
+            params.get('selectionToken') ||
+            params.get('examId')
+          );
+          var key = isStaff ? 'ngm_erp_staff_theme_mode' : 'ngm_erp_admin_theme_mode';
+          var saved = window.localStorage.getItem(key);
+          var mode =
+            saved === 'light' || saved === 'dark' || saved === 'system'
+              ? saved
+              : isStaff
+                ? 'light'
+                : 'dark';
+          var resolved =
+            mode === 'system'
+              ? window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches
+                ? 'dark'
+                : 'light'
+              : mode;
+          document.documentElement.classList.toggle('dark', resolved === 'dark');
+          document.documentElement.setAttribute('data-theme-mode', resolved);
+          document.documentElement.setAttribute('data-theme-preference', mode);
+          document.documentElement.setAttribute('data-portal-scope', isStaff ? 'staff' : 'admin');
+          document.documentElement.style.colorScheme = resolved;
+        } catch (e) {}
+      })();
+    </script>
   </head>
-  <body class="bg-slate-950 text-slate-100 antialiased selection:bg-indigo-500 selection:text-white min-h-screen">
+  <body class="antialiased selection:bg-indigo-500 selection:text-white min-h-screen">
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>

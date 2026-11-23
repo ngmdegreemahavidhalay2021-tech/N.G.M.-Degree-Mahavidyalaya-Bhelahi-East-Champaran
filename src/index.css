@@ -1,1 +1,445 @@
 @import "tailwindcss";
+@custom-variant dark (&:where(.dark, .dark *));
+
+/* ============================================================================
+   BASE DOCUMENT & FORM ELEMENT THEME SUPPORT
+   ============================================================================ */
+html {
+  color-scheme: light;
+}
+
+html.dark {
+  color-scheme: dark;
+}
+
+html:not(.dark) body {
+  background-color: #f1f5f9;
+  color: #0f172a;
+}
+
+html.dark body {
+  background-color: #020617;
+  color: #f1f5f9;
+}
+
+html:not(.dark) select,
+html:not(.dark) input,
+html:not(.dark) textarea {
+  color-scheme: light;
+}
+
+html.dark select,
+html.dark input,
+html.dark textarea {
+  color-scheme: dark;
+}
+
+html:not(.dark) select option {
+  background-color: #ffffff;
+  color: #0f172a;
+}
+
+html.dark select option {
+  background-color: #0f172a;
+  color: #f1f5f9;
+}
+
+/* ============================================================================
+   LIGHT MODE: CLEAN SYSTEM-WIDE MAPPING FOR DARK-AUTHORED ADMIN & NEP VIEWS
+   Notice: Exclusions are wrapped inside :where(...) so they add ZERO specificity,
+   keeping cascading order deterministic and allowing inputs/solid buttons to win.
+   ============================================================================ */
+html:not(.dark) :is(
+  .bg-slate-950,
+  .bg-slate-950\/95,
+  .bg-slate-950\/90,
+  .bg-slate-950\/80,
+  .bg-slate-950\/70,
+  .bg-slate-950\/60,
+  .bg-slate-950\/50,
+  .bg-slate-950\/40
+):where(:not(.staff-marks-portal):not(.staff-marks-portal *):not(.memo-paper-preview):not(.memo-paper-preview *):not(.appearance-live-preview):not(.appearance-live-preview *):not([data-theme-selector]):not([data-theme-selector] *)) {
+  background-color: #f1f5f9;
+}
+
+/* Elevated surfaces (cards, sidebar, header, modal bodies) */
+html:not(.dark) :is(
+  .bg-slate-900,
+  .bg-slate-900\/95,
+  .bg-slate-900\/90,
+  .bg-slate-900\/80,
+  .bg-slate-900\/70,
+  .bg-slate-900\/60,
+  .bg-slate-900\/50,
+  .bg-slate-900\/40
+):where(:not(.fixed.inset-0):not(.staff-marks-portal):not(.staff-marks-portal *):not(.memo-paper-preview):not(.memo-paper-preview *):not(.appearance-live-preview):not(.appearance-live-preview *):not([data-theme-selector]):not([data-theme-selector] *)) {
+  background-color: #ffffff;
+}
+
+html:not(.dark) header:is(.bg-slate-900\/90, .bg-slate-900\/60, .bg-slate-900) {
+  background-color: rgba(255, 255, 255, 0.92);
+}
+
+/* Nested subtle surfaces / cards inside white cards */
+html:not(.dark) :is(
+  .bg-slate-950\/60,
+  .bg-slate-950\/50,
+  .bg-slate-950\/40,
+  thead .bg-slate-950,
+  thead tr.bg-slate-950,
+  .bg-slate-900 .bg-slate-950
+):where(:not(input):not(select):not(textarea):not(.staff-marks-portal *):not(.memo-paper-preview *):not(.appearance-live-preview *):not([data-theme-selector] *)) {
+  background-color: #f8fafc;
+}
+
+/* Neutral chip / secondary button surfaces */
+html:not(.dark) :is(
+  .bg-slate-800,
+  .bg-slate-800\/80,
+  .bg-slate-800\/60,
+  .bg-slate-800\/40,
+  .bg-slate-800\/30,
+  .bg-slate-800\/20
+):where(:not(input):not(select):not(textarea):not(.staff-marks-portal *):not(.memo-paper-preview *):not(.appearance-live-preview *):not([data-theme-selector] *)) {
+  background-color: #e2e8f0;
+}
+
+html:not(.dark) :is(
+  .hover\:bg-slate-800,
+  .hover\:bg-slate-800\/60,
+  .hover\:bg-slate-800\/40,
+  .hover\:bg-slate-800\/30,
+  .hover\:bg-slate-800\/20,
+  .hover\:bg-slate-700
+):hover:where(:not(.staff-marks-portal *):not([data-theme-selector] *)) {
+  background-color: #e2e8f0;
+}
+
+/* Modal backdrops remain translucent dark scrims in Light Mode */
+html:not(.dark) div.fixed.inset-0:is(
+  .bg-slate-950\/80,
+  .bg-slate-950\/90,
+  .bg-slate-950\/70,
+  .bg-slate-900\/80,
+  .bg-slate-900\/60,
+  .bg-black\/80,
+  .bg-black\/70,
+  .bg-black\/60
+) {
+  background-color: rgba(15, 23, 42, 0.55);
+}
+
+/* Inputs, selects, textareas authored with dark slate backgrounds -> crisp white */
+html:not(.dark) :is(input, select, textarea):is(
+  .bg-slate-950,
+  .bg-slate-950\/90,
+  .bg-slate-950\/70,
+  .bg-slate-950\/60,
+  .bg-slate-950\/40,
+  .bg-slate-900,
+  .bg-slate-900\/60,
+  .bg-slate-800
+):where(:not(.staff-marks-portal *)) {
+  background-color: #ffffff;
+  color: #0f172a;
+}
+
+html:not(.dark) :is(input, select, textarea):is(
+  .bg-slate-950,
+  .bg-slate-950\/90,
+  .bg-slate-950\/70,
+  .bg-slate-950\/60,
+  .bg-slate-950\/40,
+  .bg-slate-900,
+  .bg-slate-900\/60
+):disabled:where(:not(.staff-marks-portal *)) {
+  background-color: #f1f5f9;
+  color: #64748b;
+}
+
+/* Dark slate gradient cards (DepartmentModule, StudentModule, Access Gate) */
+html:not(.dark) .from-slate-900 {
+  --tw-gradient-from: #ffffff;
+  --tw-gradient-via: #f8fafc;
+  --tw-gradient-to: #f1f5f9;
+  background-image: linear-gradient(to bottom, #ffffff, #f8fafc);
+}
+
+html:not(.dark) .from-blue-950\/20 {
+  background-image: linear-gradient(to right, #eff6ff, #ffffff, #eef2ff);
+}
+
+/* Borders & Dividers */
+html:not(.dark) :is(
+  .border-slate-800,
+  .border-slate-800\/80,
+  .border-slate-800\/70,
+  .border-slate-800\/60,
+  .border-slate-700,
+  .border-slate-700\/80,
+  .border-slate-700\/60,
+  .border-slate-700\/50
+):where(:not(.staff-marks-portal *):not(.memo-paper-preview *):not(.appearance-live-preview *):not([data-theme-selector]):not([data-theme-selector] *)) {
+  border-color: #cbd5e1;
+}
+
+html:not(.dark) :is(.border-slate-800, .border-slate-800\/80):where(:not(input):not(select):not(textarea):not(.staff-marks-portal *):not(.memo-paper-preview *):not(.appearance-live-preview *)) {
+  border-color: #e2e8f0;
+}
+
+html:not(.dark) :is(.divide-slate-800, .divide-slate-800\/70, .divide-slate-800\/60) > :not(:last-child) {
+  border-color: #e2e8f0;
+}
+
+/* Light-Mode Shadows */
+html:not(.dark) :is(.shadow-2xl, .shadow-xl):where(:not(.memo-paper-preview):not(.appearance-live-preview)) {
+  --tw-shadow-color: rgba(15, 23, 42, 0.08);
+}
+
+/* Text Colors in Light Mode (generic dark ink; solid buttons override below) */
+html:not(.dark) :is(.text-white, .text-slate-100, .text-slate-200):where(:not(.staff-marks-portal *):not(.memo-paper-preview *):not(.appearance-live-preview *):not([data-theme-selector] *)) {
+  color: #0f172a;
+}
+
+html:not(.dark) .text-slate-300:where(:not(.staff-marks-portal *):not(.memo-paper-preview *):not(.appearance-live-preview *):not([data-theme-selector] *)) {
+  color: #334155;
+}
+
+html:not(.dark) .text-slate-400:where(:not(.staff-marks-portal *):not(.memo-paper-preview *):not(.appearance-live-preview *):not([data-theme-selector] *)) {
+  color: #475569;
+}
+
+html:not(.dark) .text-slate-500:where(:not(.staff-marks-portal *):not(.memo-paper-preview *):not(.appearance-live-preview *):not([data-theme-selector] *)) {
+  color: #64748b;
+}
+
+html:not(.dark) :is(.hover\:text-white, .hover\:text-slate-200, .hover\:text-slate-300):hover:where(:not(.staff-marks-portal *):not([data-theme-selector] *)) {
+  color: #0f172a;
+}
+
+/* Accessible Accent Text Shades on Light Surfaces */
+html:not(.dark) :is(.text-blue-400, .text-blue-300):where(:not(.staff-marks-portal *):not(.memo-paper-preview *):not(.appearance-live-preview *)) {
+  color: #1d4ed8;
+}
+html:not(.dark) :is(.text-emerald-400, .text-emerald-300, .text-emerald-200):where(:not(.staff-marks-portal *):not(.memo-paper-preview *):not(.appearance-live-preview *)) {
+  color: #047857;
+}
+html:not(.dark) :is(.text-amber-400, .text-amber-300, .text-amber-200):where(:not(.staff-marks-portal *):not(.memo-paper-preview *):not(.appearance-live-preview *)) {
+  color: #b45309;
+}
+html:not(.dark) :is(.text-rose-400, .text-rose-300, .text-rose-200):where(:not(.staff-marks-portal *):not(.memo-paper-preview *):not(.appearance-live-preview *)) {
+  color: #be123c;
+}
+html:not(.dark) :is(.text-cyan-400, .text-cyan-300):where(:not(.staff-marks-portal *):not(.memo-paper-preview *):not(.appearance-live-preview *)) {
+  color: #0e7490;
+}
+html:not(.dark) :is(.text-indigo-400, .text-indigo-300):where(:not(.staff-marks-portal *):not(.memo-paper-preview *):not(.appearance-live-preview *)) {
+  color: #4338ca;
+}
+html:not(.dark) :is(.text-purple-400, .text-purple-300):where(:not(.staff-marks-portal *):not(.memo-paper-preview *):not(.appearance-live-preview *)) {
+  color: #7e22ce;
+}
+
+/* HIGHER SPECIFICITY: Preserve bright white text/icons inside SOLID colored buttons, nav items & banners */
+html:not(.dark) :is(button, a, div, span):is(
+  .bg-blue-600,
+  .bg-blue-700,
+  .bg-indigo-600,
+  .bg-indigo-700,
+  .bg-emerald-600,
+  .bg-emerald-700,
+  .bg-rose-600,
+  .bg-rose-700,
+  .bg-amber-600,
+  .bg-amber-700,
+  .bg-purple-600,
+  .bg-purple-700,
+  .bg-cyan-600,
+  .bg-red-600,
+  .bg-gradient-to-r.from-blue-600,
+  .bg-gradient-to-r.from-indigo-500,
+  .bg-gradient-to-r.from-blue-700
+) {
+  color: #ffffff;
+}
+
+html:not(.dark) :is(button, a, div, span):is(
+  .bg-blue-600,
+  .bg-blue-700,
+  .bg-indigo-600,
+  .bg-indigo-700,
+  .bg-emerald-600,
+  .bg-emerald-700,
+  .bg-rose-600,
+  .bg-rose-700,
+  .bg-amber-600,
+  .bg-amber-700,
+  .bg-purple-600,
+  .bg-purple-700,
+  .bg-cyan-600,
+  .bg-red-600,
+  .bg-gradient-to-r.from-blue-600,
+  .bg-gradient-to-r.from-indigo-500,
+  .bg-gradient-to-r.from-blue-700
+) :is(span, p, div, h1, h2, h3, h4, svg, .text-white, .text-slate-100, .text-slate-200, .text-slate-400, .text-blue-100, .text-blue-300, .text-emerald-100, .text-emerald-200, .text-rose-100) {
+  color: #ffffff;
+}
+
+html:not(.dark) :is(button, a, div, span):is(
+  .bg-blue-600,
+  .bg-blue-700,
+  .bg-indigo-600,
+  .bg-indigo-700,
+  .bg-emerald-600,
+  .bg-emerald-700,
+  .bg-rose-600,
+  .bg-rose-700,
+  .bg-amber-600,
+  .bg-amber-700,
+  .bg-purple-600,
+  .bg-purple-700,
+  .bg-cyan-600,
+  .bg-red-600
+):hover {
+  color: #ffffff;
+}
+
+html:not(.dark) .bg-gradient-to-tr.from-blue-600.to-indigo-500.text-white,
+html:not(.dark) .bg-gradient-to-tr.from-blue-600.to-indigo-500.text-white svg {
+  color: #ffffff;
+}
+
+/* Keep Memo Paper Preview permanently authentic White Paper + Black Ink */
+.memo-paper-preview,
+.memo-paper-preview * {
+  color-scheme: light;
+}
+html.dark .memo-paper-preview {
+  background-color: #ffffff;
+  color: #000000;
+}
+
+/* ============================================================================
+   DARK MODE: CLEAN SYSTEM-WIDE MAPPING FOR STAFF MARKS PORTAL (.staff-marks-portal)
+   ============================================================================ */
+html.dark .staff-marks-portal.bg-slate-50,
+html.dark .staff-marks-portal .bg-slate-50 {
+  background-color: #020617;
+  color: #f1f5f9;
+}
+
+html.dark .staff-marks-portal .bg-white {
+  background-color: #0f172a;
+}
+
+html.dark .staff-marks-portal header.bg-white {
+  background-color: rgba(15, 23, 42, 0.94);
+  border-color: #1e293b;
+}
+
+html.dark .staff-marks-portal .bg-slate-100,
+html.dark .staff-marks-portal .bg-slate-100\/80 {
+  background-color: #1e293b;
+}
+
+html.dark .staff-marks-portal .hover\:bg-slate-50\/80:hover,
+html.dark .staff-marks-portal .hover\:bg-slate-200:hover {
+  background-color: #1e293b;
+}
+
+html.dark .staff-marks-portal :is(input, select, textarea):is(.bg-white, .bg-slate-50) {
+  background-color: #020617;
+  border-color: #334155;
+  color: #f8fafc;
+}
+
+html.dark .staff-marks-portal :is(input, select, textarea):disabled:not(.bg-rose-100) {
+  background-color: #0f172a;
+  color: #64748b;
+}
+
+html.dark .staff-marks-portal :is(.border-slate-200, .border-slate-100, .border-blue-100) {
+  border-color: #1e293b;
+}
+
+html.dark .staff-marks-portal .border-slate-300 {
+  border-color: #334155;
+}
+
+html.dark .staff-marks-portal .divide-slate-100 > :not(:last-child) {
+  border-color: #1e293b;
+}
+
+html.dark .staff-marks-portal :is(.text-slate-900, .text-slate-800) {
+  color: #f8fafc;
+}
+
+html.dark .staff-marks-portal .text-slate-700 {
+  color: #e2e8f0;
+}
+
+html.dark .staff-marks-portal .text-slate-600 {
+  color: #cbd5e1;
+}
+
+html.dark .staff-marks-portal :is(.text-slate-500, .text-slate-400) {
+  color: #94a3b8;
+}
+
+html.dark .staff-marks-portal :is(.text-blue-600, .text-blue-700):where(:not(.bg-blue-600):not(.bg-blue-600 *)) {
+  color: #60a5fa;
+}
+
+/* Dark mode tinted alert & status pills inside Staff Marks Portal */
+html.dark .staff-marks-portal :is(.bg-emerald-50, .bg-emerald-50\/50) {
+  background-color: rgba(16, 185, 129, 0.14);
+  border-color: rgba(16, 185, 129, 0.3);
+}
+html.dark .staff-marks-portal :is(.text-emerald-700, .text-emerald-800, .text-emerald-600) {
+  color: #6ee7b7;
+}
+
+html.dark .staff-marks-portal :is(.bg-blue-50, .bg-blue-50\/70, .hover\:bg-blue-50\/30:hover) {
+  background-color: rgba(59, 130, 246, 0.14);
+  border-color: rgba(59, 130, 246, 0.3);
+}
+html.dark .staff-marks-portal :is(.text-blue-900, .text-blue-800) {
+  color: #93c5fd;
+}
+
+html.dark .staff-marks-portal :is(.bg-amber-50) {
+  background-color: rgba(245, 158, 11, 0.14);
+  border-color: rgba(245, 158, 11, 0.3);
+}
+html.dark .staff-marks-portal :is(.text-amber-900, .text-amber-700, .text-amber-600) {
+  color: #fcd34d;
+}
+
+html.dark .staff-marks-portal :is(.bg-rose-50, .bg-rose-50\/50, .bg-rose-100, .bg-rose-200) {
+  background-color: rgba(244, 63, 94, 0.15);
+  border-color: rgba(244, 63, 94, 0.35);
+}
+html.dark .staff-marks-portal :is(.text-rose-900, .text-rose-800, .text-rose-700, .text-rose-600) {
+  color: #fda4af;
+}
+
+html.dark .staff-marks-portal .bg-purple-50 {
+  background-color: rgba(168, 85, 247, 0.14);
+  border-color: rgba(168, 85, 247, 0.3);
+}
+html.dark .staff-marks-portal .text-purple-700 {
+  color: #d8b4fe;
+}
+
+html.dark .staff-marks-portal .bg-indigo-50 {
+  background-color: rgba(99, 102, 241, 0.14);
+  border-color: rgba(99, 102, 241, 0.3);
+}
+html.dark .staff-marks-portal .text-indigo-700 {
+  color: #a5b4fc;
+}
+
+html.dark .staff-marks-portal :is(.bg-blue-600, .bg-gradient-to-r.from-blue-700),
+html.dark .staff-marks-portal :is(.bg-blue-600, .bg-gradient-to-r.from-blue-700) :is(span, svg, .text-white, .text-blue-100) {
+  color: #ffffff;
+}

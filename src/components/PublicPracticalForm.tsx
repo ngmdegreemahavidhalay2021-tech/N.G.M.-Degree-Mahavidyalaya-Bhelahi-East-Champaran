@@ -52,6 +52,8 @@ import {
 import { doc, onSnapshot } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import * as XLSX from 'xlsx';
+import { usePortalTheme } from '../lib/themeManager';
+import { PortalThemeSelector } from './PortalThemeSelector';
 
 interface PublicPracticalFormProps {
   token: string;
@@ -79,6 +81,7 @@ export const PublicPracticalForm: React.FC<PublicPracticalFormProps> = ({
   token,
   collegeName = 'NGM Degree Mahavidyalaya',
 }) => {
+  usePortalTheme('staff');
   // Form entities
   const [assignment, setAssignment] = useState<ExaminerAssignment | null>(null);
   const [practicalForm, setPracticalForm] = useState<PracticalForm | null>(null);
@@ -1245,7 +1248,7 @@ export const PublicPracticalForm: React.FC<PublicPracticalFormProps> = ({
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4">
+      <div className="staff-marks-portal min-h-screen bg-slate-50 flex items-center justify-center p-4">
         <div className="flex flex-col items-center gap-3">
           <div className="w-10 h-10 border-4 border-blue-600 border-t-transparent rounded-full animate-spin" />
           <p className="text-xs text-slate-600 font-semibold">Loading Practical Examination Link...</p>
@@ -1256,7 +1259,7 @@ export const PublicPracticalForm: React.FC<PublicPracticalFormProps> = ({
 
   if (error) {
     return (
-      <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4">
+      <div className="staff-marks-portal min-h-screen bg-slate-50 flex items-center justify-center p-4">
         <div className="max-w-md w-full bg-white border border-slate-200 rounded-2xl shadow-xl p-8 text-center space-y-4">
           <AlertCircle className="w-12 h-12 text-rose-500 mx-auto" />
           <h2 className="text-lg font-bold text-slate-800">Examination Link Inaccessible</h2>
@@ -1291,7 +1294,10 @@ export const PublicPracticalForm: React.FC<PublicPracticalFormProps> = ({
   // Secure In-Charge Access Gate screen if not yet verified
   if (!accessVerified) {
     return (
-      <div className="min-h-screen bg-gradient-to-b from-slate-900 via-slate-900 to-slate-950 text-slate-100 flex items-center justify-center p-4">
+      <div className="min-h-screen bg-gradient-to-b from-slate-900 via-slate-900 to-slate-950 text-slate-100 flex flex-col items-center justify-center p-4 relative">
+        <div className="w-full max-w-md flex justify-end mb-3">
+          <PortalThemeSelector scope="staff" compact />
+        </div>
         <div className="max-w-md w-full bg-slate-900/90 border border-slate-800 rounded-3xl p-8 shadow-2xl space-y-6 relative overflow-hidden backdrop-blur-xl">
           <div className="text-center space-y-3">
             <div className="w-16 h-16 rounded-2xl bg-gradient-to-tr from-blue-600 to-indigo-500 flex items-center justify-center text-white mx-auto shadow-lg shadow-blue-500/30">
@@ -1345,10 +1351,10 @@ export const PublicPracticalForm: React.FC<PublicPracticalFormProps> = ({
   }
 
   return (
-    <div className="min-h-screen bg-slate-50 text-slate-800 antialiased font-sans pb-16">
+    <div className="staff-marks-portal min-h-screen bg-slate-50 text-slate-800 antialiased font-sans pb-16">
       {/* Top Academic Header */}
       <header className="bg-white border-b border-blue-100 shadow-sm sticky top-0 z-30">
-        <div className="max-w-5xl mx-auto px-4 py-3 flex items-center justify-between">
+        <div className="max-w-5xl mx-auto px-4 py-3 flex flex-wrap items-center justify-between gap-2">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-xl bg-blue-600 flex items-center justify-center text-white shadow-md shadow-blue-500/20">
               <GraduationCap className="w-6 h-6" />
@@ -1361,7 +1367,10 @@ export const PublicPracticalForm: React.FC<PublicPracticalFormProps> = ({
             </div>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
+            {/* Staff Theme Switcher (Light / Dark / System Default) */}
+            <PortalThemeSelector scope="staff" compact />
+
             {/* Auto-Save Status */}
             <div className="flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-medium border bg-slate-50 border-slate-200">
               {saveStatus === 'saving' && (

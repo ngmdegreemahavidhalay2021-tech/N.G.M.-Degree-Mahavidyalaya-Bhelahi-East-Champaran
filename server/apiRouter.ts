@@ -43,6 +43,34 @@ import {
   updateDepartmentServer,
   deleteDepartmentServer,
   saveSubjectUpdateSystemSettingsServer,
+  createCombinationServer,
+  updateCombinationServer,
+  deleteCombinationServer,
+  createStudentServer,
+  updateStudentServer,
+  deleteStudentServer,
+  uploadStudentsBatchServer,
+  autoAllocateStudentsServer,
+  createGroupServer,
+  updateGroupServer,
+  deleteGroupServer,
+  createStaffServer,
+  updateStaffServer,
+  deleteStaffServer,
+  createStaffAssignmentServer,
+  updateStaffAssignmentServer,
+  deleteStaffAssignmentServer,
+  createWorkAllocationServer,
+  updateWorkAllocationServer,
+  deleteWorkAllocationServer,
+  saveNepConfigServer,
+  createSelectionFormServer,
+  updateSelectionFormServer,
+  deleteSelectionFormServer,
+  reopenSelectionFormServer,
+  getPublicSelectionFormByTokenServer,
+  savePublicStudentSelectionServer,
+  submitPublicSelectionFormServer,
 } from './subjectUpdateSystemServer.ts';
 
 export const apiRouter = express.Router();
@@ -1440,6 +1468,504 @@ apiRouter.put(
     }
   }
 );
+
+// --- Subject Combinations ---
+
+apiRouter.post(
+  ['/admin/subject-update-system/combinations', '/api/admin/subject-update-system/combinations'],
+  async (req: Request, res: Response): Promise<any> => {
+    try {
+      const admin = await requireVerifiedAdmin(req, res);
+      if (!admin) return;
+      const combination = await createCombinationServer(req.body || {}, admin.username);
+      return res.status(201).json({ success: true, combination });
+    } catch (err: any) {
+      const msg = err?.message || 'Failed to create subject combination';
+      const statusCode = msg.includes('required') || msg.includes('configured') || msg.includes('already exists') || msg.includes('at least') ? 400 : 500;
+      return res.status(statusCode).json({ error: msg, message: msg });
+    }
+  }
+);
+
+apiRouter.put(
+  ['/admin/subject-update-system/combinations/:id', '/api/admin/subject-update-system/combinations/:id'],
+  async (req: Request, res: Response): Promise<any> => {
+    try {
+      const admin = await requireVerifiedAdmin(req, res);
+      if (!admin) return;
+      const id = String(req.params.id || '').trim();
+      const combination = await updateCombinationServer(id, req.body || {}, admin.username);
+      return res.json({ success: true, combination });
+    } catch (err: any) {
+      const msg = err?.message || 'Failed to update subject combination';
+      const statusCode = msg.includes('not found') ? 404 : msg.includes('empty') || msg.includes('configured') || msg.includes('already exists') || msg.includes('required') ? 400 : 500;
+      return res.status(statusCode).json({ error: msg, message: msg });
+    }
+  }
+);
+
+apiRouter.delete(
+  ['/admin/subject-update-system/combinations/:id', '/api/admin/subject-update-system/combinations/:id'],
+  async (req: Request, res: Response): Promise<any> => {
+    try {
+      const admin = await requireVerifiedAdmin(req, res);
+      if (!admin) return;
+      const id = String(req.params.id || '').trim();
+      await deleteCombinationServer(id);
+      return res.json({ success: true });
+    } catch (err: any) {
+      const msg = err?.message || 'Failed to delete subject combination';
+      const statusCode = msg.includes('not found') ? 404 : 500;
+      return res.status(statusCode).json({ error: msg, message: msg });
+    }
+  }
+);
+
+// --- Students & Excel Upload / Auto-Allocation ---
+
+apiRouter.post(
+  ['/admin/subject-update-system/students', '/api/admin/subject-update-system/students'],
+  async (req: Request, res: Response): Promise<any> => {
+    try {
+      const admin = await requireVerifiedAdmin(req, res);
+      if (!admin) return;
+      const student = await createStudentServer(req.body || {}, admin.username);
+      return res.status(201).json({ success: true, student });
+    } catch (err: any) {
+      const msg = err?.message || 'Failed to create student';
+      const statusCode = msg.includes('required') || msg.includes('already exists') ? 400 : 500;
+      return res.status(statusCode).json({ error: msg, message: msg });
+    }
+  }
+);
+
+apiRouter.put(
+  ['/admin/subject-update-system/students/:id', '/api/admin/subject-update-system/students/:id'],
+  async (req: Request, res: Response): Promise<any> => {
+    try {
+      const admin = await requireVerifiedAdmin(req, res);
+      if (!admin) return;
+      const id = String(req.params.id || '').trim();
+      const student = await updateStudentServer(id, req.body || {}, admin.username);
+      return res.json({ success: true, student });
+    } catch (err: any) {
+      const msg = err?.message || 'Failed to update student';
+      const statusCode = msg.includes('not found') ? 404 : msg.includes('empty') || msg.includes('already exists') ? 400 : 500;
+      return res.status(statusCode).json({ error: msg, message: msg });
+    }
+  }
+);
+
+apiRouter.delete(
+  ['/admin/subject-update-system/students/:id', '/api/admin/subject-update-system/students/:id'],
+  async (req: Request, res: Response): Promise<any> => {
+    try {
+      const admin = await requireVerifiedAdmin(req, res);
+      if (!admin) return;
+      const id = String(req.params.id || '').trim();
+      await deleteStudentServer(id);
+      return res.json({ success: true });
+    } catch (err: any) {
+      const msg = err?.message || 'Failed to delete student';
+      const statusCode = msg.includes('not found') ? 404 : 500;
+      return res.status(statusCode).json({ error: msg, message: msg });
+    }
+  }
+);
+
+apiRouter.post(
+  ['/admin/subject-update-system/students/upload', '/api/admin/subject-update-system/students/upload'],
+  async (req: Request, res: Response): Promise<any> => {
+    try {
+      const admin = await requireVerifiedAdmin(req, res);
+      if (!admin) return;
+      const result = await uploadStudentsBatchServer(req.body || {}, admin.username);
+      return res.json({ success: true, ...result });
+    } catch (err: any) {
+      const msg = err?.message || 'Failed to upload student Excel sheet';
+      const statusCode = msg.includes('must') || msg.includes('limited') ? 400 : 500;
+      return res.status(statusCode).json({ error: msg, message: msg });
+    }
+  }
+);
+
+apiRouter.post(
+  ['/admin/subject-update-system/students/auto-allocate', '/api/admin/subject-update-system/students/auto-allocate'],
+  async (req: Request, res: Response): Promise<any> => {
+    try {
+      const admin = await requireVerifiedAdmin(req, res);
+      if (!admin) return;
+      const result = await autoAllocateStudentsServer(req.body || {}, admin.username);
+      return res.json({ success: true, ...result });
+    } catch (err: any) {
+      const msg = err?.message || 'Failed to auto-allocate students';
+      return res.status(500).json({ error: msg, message: msg });
+    }
+  }
+);
+
+// --- Student Groups ---
+
+apiRouter.post(
+  ['/admin/subject-update-system/groups', '/api/admin/subject-update-system/groups'],
+  async (req: Request, res: Response): Promise<any> => {
+    try {
+      const admin = await requireVerifiedAdmin(req, res);
+      if (!admin) return;
+      const group = await createGroupServer(req.body || {}, admin.username);
+      return res.status(201).json({ success: true, group });
+    } catch (err: any) {
+      const msg = err?.message || 'Failed to create student group';
+      const statusCode = msg.includes('required') || msg.includes('already exists') ? 400 : 500;
+      return res.status(statusCode).json({ error: msg, message: msg });
+    }
+  }
+);
+
+apiRouter.put(
+  ['/admin/subject-update-system/groups/:id', '/api/admin/subject-update-system/groups/:id'],
+  async (req: Request, res: Response): Promise<any> => {
+    try {
+      const admin = await requireVerifiedAdmin(req, res);
+      if (!admin) return;
+      const id = String(req.params.id || '').trim();
+      const group = await updateGroupServer(id, req.body || {}, admin.username);
+      return res.json({ success: true, group });
+    } catch (err: any) {
+      const msg = err?.message || 'Failed to update student group';
+      const statusCode = msg.includes('not found') ? 404 : msg.includes('empty') || msg.includes('already exists') ? 400 : 500;
+      return res.status(statusCode).json({ error: msg, message: msg });
+    }
+  }
+);
+
+apiRouter.delete(
+  ['/admin/subject-update-system/groups/:id', '/api/admin/subject-update-system/groups/:id'],
+  async (req: Request, res: Response): Promise<any> => {
+    try {
+      const admin = await requireVerifiedAdmin(req, res);
+      if (!admin) return;
+      const id = String(req.params.id || '').trim();
+      await deleteGroupServer(id);
+      return res.json({ success: true });
+    } catch (err: any) {
+      const msg = err?.message || 'Failed to delete student group';
+      const statusCode = msg.includes('not found') ? 404 : 500;
+      return res.status(statusCode).json({ error: msg, message: msg });
+    }
+  }
+);
+
+// --- Staff Management ---
+
+apiRouter.post(
+  ['/admin/subject-update-system/staff', '/api/admin/subject-update-system/staff'],
+  async (req: Request, res: Response): Promise<any> => {
+    try {
+      const admin = await requireVerifiedAdmin(req, res);
+      if (!admin) return;
+      const staffMember = await createStaffServer(req.body || {}, admin.username);
+      return res.status(201).json({ success: true, staffMember });
+    } catch (err: any) {
+      const msg = err?.message || 'Failed to create staff profile';
+      const statusCode = msg.includes('required') || msg.includes('already exists') ? 400 : 500;
+      return res.status(statusCode).json({ error: msg, message: msg });
+    }
+  }
+);
+
+apiRouter.put(
+  ['/admin/subject-update-system/staff/:id', '/api/admin/subject-update-system/staff/:id'],
+  async (req: Request, res: Response): Promise<any> => {
+    try {
+      const admin = await requireVerifiedAdmin(req, res);
+      if (!admin) return;
+      const id = String(req.params.id || '').trim();
+      const staffMember = await updateStaffServer(id, req.body || {}, admin.username);
+      return res.json({ success: true, staffMember });
+    } catch (err: any) {
+      const msg = err?.message || 'Failed to update staff profile';
+      const statusCode = msg.includes('not found') ? 404 : msg.includes('empty') || msg.includes('already exists') ? 400 : 500;
+      return res.status(statusCode).json({ error: msg, message: msg });
+    }
+  }
+);
+
+apiRouter.delete(
+  ['/admin/subject-update-system/staff/:id', '/api/admin/subject-update-system/staff/:id'],
+  async (req: Request, res: Response): Promise<any> => {
+    try {
+      const admin = await requireVerifiedAdmin(req, res);
+      if (!admin) return;
+      const id = String(req.params.id || '').trim();
+      await deleteStaffServer(id);
+      return res.json({ success: true });
+    } catch (err: any) {
+      const msg = err?.message || 'Failed to delete staff profile';
+      const statusCode = msg.includes('not found') ? 404 : 500;
+      return res.status(statusCode).json({ error: msg, message: msg });
+    }
+  }
+);
+
+// --- Staff Assignments & In-charge Allocation ---
+
+apiRouter.post(
+  ['/admin/subject-update-system/staff-assignments', '/api/admin/subject-update-system/staff-assignments'],
+  async (req: Request, res: Response): Promise<any> => {
+    try {
+      const admin = await requireVerifiedAdmin(req, res);
+      if (!admin) return;
+      const assignment = await createStaffAssignmentServer(req.body || {}, admin.username);
+      return res.status(201).json({ success: true, assignment });
+    } catch (err: any) {
+      const msg = err?.message || 'Failed to create staff assignment';
+      const statusCode = msg.includes('required') || msg.includes('select') || msg.includes('must') ? 400 : 500;
+      return res.status(statusCode).json({ error: msg, message: msg });
+    }
+  }
+);
+
+apiRouter.put(
+  ['/admin/subject-update-system/staff-assignments/:id', '/api/admin/subject-update-system/staff-assignments/:id'],
+  async (req: Request, res: Response): Promise<any> => {
+    try {
+      const admin = await requireVerifiedAdmin(req, res);
+      if (!admin) return;
+      const id = String(req.params.id || '').trim();
+      const assignment = await updateStaffAssignmentServer(id, req.body || {}, admin.username);
+      return res.json({ success: true, assignment });
+    } catch (err: any) {
+      const msg = err?.message || 'Failed to update staff assignment';
+      const statusCode = msg.includes('not found') ? 404 : msg.includes('must') || msg.includes('required') ? 400 : 500;
+      return res.status(statusCode).json({ error: msg, message: msg });
+    }
+  }
+);
+
+apiRouter.delete(
+  ['/admin/subject-update-system/staff-assignments/:id', '/api/admin/subject-update-system/staff-assignments/:id'],
+  async (req: Request, res: Response): Promise<any> => {
+    try {
+      const admin = await requireVerifiedAdmin(req, res);
+      if (!admin) return;
+      const id = String(req.params.id || '').trim();
+      await deleteStaffAssignmentServer(id);
+      return res.json({ success: true });
+    } catch (err: any) {
+      const msg = err?.message || 'Failed to delete staff assignment';
+      const statusCode = msg.includes('not found') ? 404 : 500;
+      return res.status(statusCode).json({ error: msg, message: msg });
+    }
+  }
+);
+
+// --- Work Allocations ---
+
+apiRouter.post(
+  ['/admin/subject-update-system/work-allocations', '/api/admin/subject-update-system/work-allocations'],
+  async (req: Request, res: Response): Promise<any> => {
+    try {
+      const admin = await requireVerifiedAdmin(req, res);
+      if (!admin) return;
+      const workAllocation = await createWorkAllocationServer(req.body || {}, admin.username);
+      return res.status(201).json({ success: true, workAllocation });
+    } catch (err: any) {
+      const msg = err?.message || 'Failed to create work allocation';
+      const statusCode = msg.includes('required') || msg.includes('must') ? 400 : 500;
+      return res.status(statusCode).json({ error: msg, message: msg });
+    }
+  }
+);
+
+apiRouter.put(
+  ['/admin/subject-update-system/work-allocations/:id', '/api/admin/subject-update-system/work-allocations/:id'],
+  async (req: Request, res: Response): Promise<any> => {
+    try {
+      const admin = await requireVerifiedAdmin(req, res);
+      if (!admin) return;
+      const id = String(req.params.id || '').trim();
+      const workAllocation = await updateWorkAllocationServer(id, req.body || {}, admin.username);
+      return res.json({ success: true, workAllocation });
+    } catch (err: any) {
+      const msg = err?.message || 'Failed to update work allocation';
+      const statusCode = msg.includes('not found') ? 404 : msg.includes('empty') || msg.includes('must') ? 400 : 500;
+      return res.status(statusCode).json({ error: msg, message: msg });
+    }
+  }
+);
+
+apiRouter.delete(
+  ['/admin/subject-update-system/work-allocations/:id', '/api/admin/subject-update-system/work-allocations/:id'],
+  async (req: Request, res: Response): Promise<any> => {
+    try {
+      const admin = await requireVerifiedAdmin(req, res);
+      if (!admin) return;
+      const id = String(req.params.id || '').trim();
+      await deleteWorkAllocationServer(id);
+      return res.json({ success: true });
+    } catch (err: any) {
+      const msg = err?.message || 'Failed to delete work allocation';
+      const statusCode = msg.includes('not found') ? 404 : 500;
+      return res.status(statusCode).json({ error: msg, message: msg });
+    }
+  }
+);
+
+// --- NEP Combinations Config (Admin) ---
+
+apiRouter.put(
+  ['/admin/subject-update-system/nep-configs', '/api/admin/subject-update-system/nep-configs'],
+  async (req: Request, res: Response): Promise<any> => {
+    try {
+      const admin = await requireVerifiedAdmin(req, res);
+      if (!admin) return;
+      const nepConfig = await saveNepConfigServer(req.body || {}, admin.username);
+      return res.json({ success: true, nepConfig });
+    } catch (err: any) {
+      const msg = err?.message || 'Failed to save NEP combination configuration';
+      const statusCode = msg.includes('required') ? 400 : 500;
+      return res.status(statusCode).json({ error: msg, message: msg });
+    }
+  }
+);
+
+// --- Selection Forms / Staff & Student Assignment (Admin) ---
+
+apiRouter.post(
+  ['/admin/subject-update-system/selection-forms', '/api/admin/subject-update-system/selection-forms'],
+  async (req: Request, res: Response): Promise<any> => {
+    try {
+      const admin = await requireVerifiedAdmin(req, res);
+      if (!admin) return;
+      const selectionForm = await createSelectionFormServer(req.body || {}, admin.username);
+      return res.status(201).json({ success: true, selectionForm });
+    } catch (err: any) {
+      const msg = err?.message || 'Failed to create selection form assignment';
+      const statusCode =
+        msg.includes('required') || msg.includes('must') || msg.includes('not found') || msg.includes('None')
+          ? 400
+          : 500;
+      return res.status(statusCode).json({ error: msg, message: msg });
+    }
+  }
+);
+
+apiRouter.put(
+  ['/admin/subject-update-system/selection-forms/:id', '/api/admin/subject-update-system/selection-forms/:id'],
+  async (req: Request, res: Response): Promise<any> => {
+    try {
+      const admin = await requireVerifiedAdmin(req, res);
+      if (!admin) return;
+      const id = String(req.params.id || '').trim();
+      const selectionForm = await updateSelectionFormServer(id, req.body || {}, admin.username);
+      return res.json({ success: true, selectionForm });
+    } catch (err: any) {
+      const msg = err?.message || 'Failed to update selection form assignment';
+      const statusCode = msg.includes('not found')
+        ? 404
+        : msg.includes('required') || msg.includes('must')
+          ? 400
+          : 500;
+      return res.status(statusCode).json({ error: msg, message: msg });
+    }
+  }
+);
+
+apiRouter.delete(
+  ['/admin/subject-update-system/selection-forms/:id', '/api/admin/subject-update-system/selection-forms/:id'],
+  async (req: Request, res: Response): Promise<any> => {
+    try {
+      const admin = await requireVerifiedAdmin(req, res);
+      if (!admin) return;
+      const id = String(req.params.id || '').trim();
+      await deleteSelectionFormServer(id);
+      return res.json({ success: true });
+    } catch (err: any) {
+      const msg = err?.message || 'Failed to delete selection form assignment';
+      const statusCode = msg.includes('not found') ? 404 : 500;
+      return res.status(statusCode).json({ error: msg, message: msg });
+    }
+  }
+);
+
+apiRouter.post(
+  [
+    '/admin/subject-update-system/selection-forms/:id/reopen',
+    '/api/admin/subject-update-system/selection-forms/:id/reopen',
+  ],
+  async (req: Request, res: Response): Promise<any> => {
+    try {
+      const admin = await requireVerifiedAdmin(req, res);
+      if (!admin) return;
+      const id = String(req.params.id || '').trim();
+      const selectionForm = await reopenSelectionFormServer(id, admin.username);
+      return res.json({ success: true, selectionForm });
+    } catch (err: any) {
+      const msg = err?.message || 'Failed to reopen selection form';
+      const statusCode = msg.includes('not found') ? 404 : 500;
+      return res.status(statusCode).json({ error: msg, message: msg });
+    }
+  }
+);
+
+// --- Public Tokenized Department In-Charge Selection Form Routes ---
+
+apiRouter.get(
+  ['/selection-form/:token', '/api/selection-form/:token'],
+  async (req: Request, res: Response): Promise<any> => {
+    try {
+      const token = String(req.params.token || '').trim();
+      const payload = await getPublicSelectionFormByTokenServer(token);
+      return res.json({ success: true, ...payload });
+    } catch (err: any) {
+      const msg = err?.message || 'Selection form link could not be loaded';
+      const statusCode = msg.includes('invalid') || msg.includes('removed') ? 404 : 400;
+      return res.status(statusCode).json({ error: msg, message: msg });
+    }
+  }
+);
+
+apiRouter.put(
+  ['/selection-form/:token/student/:studentId', '/api/selection-form/:token/student/:studentId'],
+  async (req: Request, res: Response): Promise<any> => {
+    try {
+      const token = String(req.params.token || '').trim();
+      const studentId = String(req.params.studentId || '').trim();
+      const result = await savePublicStudentSelectionServer(token, studentId, req.body || {});
+      return res.json({ success: true, ...result });
+    } catch (err: any) {
+      const msg = err?.message || 'Failed to save student subject selection';
+      const statusCode = msg.startsWith('LOCKED:')
+        ? 403
+        : msg.includes('invalid') || msg.includes('removed')
+          ? 404
+          : 400;
+      return res.status(statusCode).json({ error: msg, message: msg });
+    }
+  }
+);
+
+apiRouter.post(
+  ['/selection-form/:token/submit', '/api/selection-form/:token/submit'],
+  async (req: Request, res: Response): Promise<any> => {
+    try {
+      const token = String(req.params.token || '').trim();
+      const payload = await submitPublicSelectionFormServer(token);
+      return res.json({ success: true, ...payload });
+    } catch (err: any) {
+      const msg = err?.message || 'Failed to finalize selection form';
+      const statusCode = msg.startsWith('LOCKED:')
+        ? 403
+        : msg.includes('invalid') || msg.includes('removed')
+          ? 404
+          : 400;
+      return res.status(statusCode).json({ error: msg, message: msg });
+    }
+  }
+);
+
+
 
 
 
