@@ -46,6 +46,7 @@ import { AcademicSessionModule } from './components/AcademicSessionModule';
 import { SemesterModule } from './components/SemesterModule';
 import { SystemSettingsModule } from './components/SystemSettingsModule';
 import { MemoSheetModule } from './components/MemoSheetModule';
+import { PracticalMarksGeneratorModule } from './components/PracticalMarksGeneratorModule';
 import { DatabaseManagementModule } from './components/DatabaseManagementModule';
 import { SubjectUpdateModule } from './components/SubjectUpdateModule';
 import { PublicNepSelectionForm } from './components/PublicNepSelectionForm';
@@ -803,6 +804,14 @@ export default function App() {
           {/* NEW MODULE: MEMO SHEET */}
           {activeModule === 'memo-sheet' && (
             <MemoSheetModule collegeName={collegeName} />
+          )}
+
+          {/* NEW MODULE: PRACTICAL MARKS FILE GENERATOR */}
+          {activeModule === 'practical-marks-generator' && (
+            <PracticalMarksGeneratorModule
+              admin={admin}
+              onOpenMarksManagement={() => setActiveModule('marks')}
+            />
           )}
 
           {/* MODULE 9: REPORTS */}

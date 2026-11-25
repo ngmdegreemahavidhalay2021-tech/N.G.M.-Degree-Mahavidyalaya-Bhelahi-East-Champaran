@@ -72,6 +72,12 @@ import {
   savePublicStudentSelectionServer,
   submitPublicSelectionFormServer,
 } from './subjectUpdateSystemServer.ts';
+import {
+  listPracticalMarksFmConfigsServer,
+  createPracticalMarksFmConfigServer,
+  updatePracticalMarksFmConfigServer,
+  deletePracticalMarksFmConfigServer,
+} from './practicalMarksFmServer.ts';
 
 export const apiRouter = express.Router();
 
@@ -1965,8 +1971,77 @@ apiRouter.post(
   }
 );
 
+// --- Practical Marks File Generator: Admin Full Marks (FM) Preferences ---
 
+apiRouter.get(
+  ['/admin/practical-marks-fm-configs', '/api/admin/practical-marks-fm-configs'],
+  async (req: Request, res: Response): Promise<any> => {
+    try {
+      const admin = await requireVerifiedAdmin(req, res);
+      if (!admin) return;
+      const configs = await listPracticalMarksFmConfigsServer();
+      return res.json({ success: true, configs });
+    } catch (err: any) {
+      return res.status(500).json({
+        error: err?.message || 'Failed to load Full Marks preferences',
+        message: err?.message || 'Failed to load Full Marks preferences',
+      });
+    }
+  }
+);
 
+apiRouter.post(
+  ['/admin/practical-marks-fm-configs', '/api/admin/practical-marks-fm-configs'],
+  async (req: Request, res: Response): Promise<any> => {
+    try {
+      const admin = await requireVerifiedAdmin(req, res);
+      if (!admin) return;
+      const config = await createPracticalMarksFmConfigServer(req.body || {}, admin.username);
+      return res.json({ success: true, config });
+    } catch (err: any) {
+      const msg = err?.message || 'Failed to save Full Marks preference';
+      const statusCode =
+        msg.includes('required') || msg.includes('positive') || msg.includes('exceed') ? 400 : 500;
+      return res.status(statusCode).json({ error: msg, message: msg });
+    }
+  }
+);
 
+apiRouter.put(
+  ['/admin/practical-marks-fm-configs/:id', '/api/admin/practical-marks-fm-configs/:id'],
+  async (req: Request, res: Response): Promise<any> => {
+    try {
+      const admin = await requireVerifiedAdmin(req, res);
+      if (!admin) return;
+      const id = String(req.params.id || '').trim();
+      const config = await updatePracticalMarksFmConfigServer(id, req.body || {}, admin.username);
+      return res.json({ success: true, config });
+    } catch (err: any) {
+      const msg = err?.message || 'Failed to update Full Marks preference';
+      const statusCode = msg.includes('not found')
+        ? 404
+        : msg.includes('required') || msg.includes('positive') || msg.includes('exceed')
+          ? 400
+          : 500;
+      return res.status(statusCode).json({ error: msg, message: msg });
+    }
+  }
+);
 
+apiRouter.delete(
+  ['/admin/practical-marks-fm-configs/:id', '/api/admin/practical-marks-fm-configs/:id'],
+  async (req: Request, res: Response): Promise<any> => {
+    try {
+      const admin = await requireVerifiedAdmin(req, res);
+      if (!admin) return;
+      const id = String(req.params.id || '').trim();
+      await deletePracticalMarksFmConfigServer(id);
+      return res.json({ success: true });
+    } catch (err: any) {
+      const msg = err?.message || 'Failed to delete Full Marks preference';
+      const statusCode = msg.includes('not found') ? 404 : 500;
+      return res.status(statusCode).json({ error: msg, message: msg });
+    }
+  }
+);
 

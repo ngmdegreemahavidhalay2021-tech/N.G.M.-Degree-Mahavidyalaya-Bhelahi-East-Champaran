@@ -613,6 +613,26 @@
         "updatedAt": { "type": "string" }
       },
       "required": ["id", "session", "semester", "departmentName", "inChargeStaffId", "token", "status"]
+    },
+    "PracticalMarksFmConfig": {
+      "title": "PracticalMarksFmConfig",
+      "description": "Saved Admin Full Marks (FM) preferences for the Practical Marks File Generator",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "label": { "type": "string" },
+        "fullMarks": { "type": "number" },
+        "session": { "type": "string" },
+        "semester": { "type": "string" },
+        "category": { "type": "string", "enum": ["ALL", "MJC", "MIC", "MDC"] },
+        "isDefault": { "type": "boolean" },
+        "notes": { "type": "string" },
+        "createdBy": { "type": "string" },
+        "updatedBy": { "type": "string" },
+        "createdAt": { "type": "string" },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["id", "label", "fullMarks"]
     }
   },
   "firestore": {
@@ -735,6 +755,10 @@
     "/subjectUpdateSelectionForms/{formId}": {
       "schema": { "$ref": "#/entities/SubjectUpdateSelectionForm" },
       "description": "Department In-Charge NEP Student Selection forms inside SUBJECT UPDATE"
+    },
+    "/practicalMarksFmSettings/{configId}": {
+      "schema": { "$ref": "#/entities/PracticalMarksFmConfig" },
+      "description": "Admin-saved Full Marks (FM) configurations for Practical Marks File Generator"
     }
   }
 }

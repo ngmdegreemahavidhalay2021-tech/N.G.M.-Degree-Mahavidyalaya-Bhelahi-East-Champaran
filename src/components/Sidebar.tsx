@@ -24,6 +24,7 @@ import {
   ClipboardList,
   Database,
   BookCheck,
+  FileDown,
 } from 'lucide-react';
 
 export type SidebarModuleKey =
@@ -39,6 +40,7 @@ export type SidebarModuleKey =
   | 'reports'
   | 'export'
   | 'memo-sheet'
+  | 'practical-marks-generator'
   | 'settings'
   | 'appearance-settings'
   | 'database-management'
@@ -113,6 +115,7 @@ const MENU_GROUPS: MenuGroup[] = [
       { key: 'reports', label: 'Reports & Analytics', icon: BarChart3 },
       { key: 'export', label: 'Export Center', icon: FileSpreadsheet },
       { key: 'memo-sheet', label: 'MEMO SHEET', icon: ClipboardList },
+      { key: 'practical-marks-generator', label: 'Practical Marks File Generator', icon: FileDown },
     ],
   },
   {
